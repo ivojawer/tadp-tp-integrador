@@ -6,19 +6,21 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
+    "db:setup": "ts-node scripts/db-setup.ts",
     "build": "nest build",
-    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\" \"__tests__/**/*.ts\" \"scripts/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "lint": "eslint \"{src,apps,libs,test,__tests__,scripts}/**/*.ts\" --fix",
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:integration": "jest --config ./jest-integration.json --runInBand",
+    "test:e2e": "jest --config ./__tests__/jest-e2e.json --runInBand",
     "prepare": "husky"
   },
   "lint-staged": {
