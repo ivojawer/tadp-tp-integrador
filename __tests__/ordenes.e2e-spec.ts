@@ -1,88 +1,23 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
+import { Kysely } from 'kysely'
 import * as request from 'supertest'
 import { AppModule } from '../src/app.module'
 import { KYSELY_DB } from '../src/common/database/database.provider'
+import { Database } from '../src/common/database/types'
 import { AllExceptionsFilter } from '../src/common/filters/http-exception.filter'
 import { CreateOrdenDto } from '../src/modules/ordenes/dto/create-orden.dto'
 import { UpdateEstadoOrdenDto } from '../src/modules/ordenes/dto/update-estado-orden.dto'
-import { EstadoOrden, Orden } from '../src/modules/ordenes/entities/orden.entity'
-import {
-  IOrdenesRepository,
-  ORDENES_REPOSITORY,
-} from '../src/modules/ordenes/repositories/ordenes.repository'
-
-class InMemoryOrdenesRepository implements IOrdenesRepository {
-  private ordenes: Map<number, Orden> = new Map()
-  private currentId = 1
-
-  async findById(id: number): Promise<Orden | null> {
-    const orden = this.ordenes.get(id)
-    return orden ? { ...orden } : null
-  }
-
-  async create(data: {
-    clienteNombre: string
-    clienteDireccion: string
-    items: { productoSku: string; cantidad: number }[]
-  }): Promise<Orden> {
-    const orden: Orden = {
-      id: this.currentId++,
-      clienteNombre: data.clienteNombre,
-      clienteDireccion: data.clienteDireccion,
-      estado: EstadoOrden.PEDIDA,
-      fechaCompletada: null,
-      repartidorLegajo: null,
-      vehiculoId: null,
-    }
-    this.ordenes.set(orden.id, { ...orden })
-    return { ...orden }
-  }
-
-  async updateEstado(
-    id: number,
-    nuevoEstado: EstadoOrden,
-    options?: { repartidorLegajo?: string; vehiculoId?: number; fechaCompletada?: Date },
-  ): Promise<Orden> {
-    const orden = this.ordenes.get(id)
-    if (!orden) {
-      throw new Error(`Orden ${id} no encontrada`)
-    }
-    orden.estado = nuevoEstado
-    if (options?.repartidorLegajo !== undefined) {
-      orden.repartidorLegajo = options.repartidorLegajo
-    }
-    if (options?.vehiculoId !== undefined) {
-      orden.vehiculoId = options.vehiculoId
-    }
-    if (options?.fechaCompletada !== undefined) {
-      orden.fechaCompletada = options.fechaCompletada
-    }
-    this.ordenes.set(id, { ...orden })
-    return { ...orden }
-  }
-
-  reset(): void {
-    this.ordenes.clear()
-    this.currentId = 1
-  }
-}
+import { EstadoOrden } from '../src/modules/ordenes/entities/orden.entity'
 
 describe('Ordenes (e2e)', () => {
   let app: INestApplication
-  let repository: InMemoryOrdenesRepository
+  let db: Kysely<Database>
 
   beforeAll(async () => {
-    repository = new InMemoryOrdenesRepository()
-
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    })
-      .overrideProvider(KYSELY_DB)
-      .useValue({})
-      .overrideProvider(ORDENES_REPOSITORY)
-      .useValue(repository)
-      .compile()
+    }).compile()
 
     app = moduleFixture.createNestApplication()
 
@@ -100,18 +35,29 @@ describe('Ordenes (e2e)', () => {
     app.useGlobalFilters(new AllExceptionsFilter())
 
     await app.init()
+
+    db = moduleFixture.get<Kysely<Database>>(KYSELY_DB)
   })
 
   afterAll(async () => {
-    await app.close()
+    if (db) {
+      await db.deleteFrom('items_pedidos').execute()
+      await db.deleteFrom('ordenes').execute()
+      await db.destroy()
+    }
+    if (app) {
+      await app.close()
+    }
   })
 
-  beforeEach(() => {
-    repository.reset()
+  beforeEach(async () => {
+    // Limpieza de datos transaccionales antes de cada prueba para aislamiento
+    await db.deleteFrom('items_pedidos').execute()
+    await db.deleteFrom('ordenes').execute()
   })
 
   describe('POST /ordenes', () => {
-    it('debe crear una orden exitosamente (201 Created)', async () => {
+    it('debe persistir una orden con sus items en PostgreSQL y retornar 201 Created', async () => {
       const payload: CreateOrdenDto = {
         clienteNombre: 'Juan Pérez',
         clienteDireccion: 'Av. Corrientes 1234, CABA',
@@ -123,8 +69,8 @@ describe('Ordenes (e2e)', () => {
 
       const response = await request(app.getHttpServer()).post('/ordenes').send(payload).expect(201)
 
-      expect(response.body).toEqual({
-        id: 1,
+      expect(response.body).toMatchObject({
+        id: expect.any(Number),
         clienteNombre: payload.clienteNombre,
         clienteDireccion: payload.clienteDireccion,
         estado: EstadoOrden.PEDIDA,
@@ -132,9 +78,34 @@ describe('Ordenes (e2e)', () => {
         repartidorLegajo: null,
         vehiculoId: null,
       })
+
+      // Verificación directa contra PostgreSQL
+      const ordenGuardada = await db
+        .selectFrom('ordenes')
+        .selectAll()
+        .where('id', '=', response.body.id)
+        .executeTakeFirst()
+
+      expect(ordenGuardada).toBeDefined()
+      expect(ordenGuardada?.cliente_nombre).toBe('Juan Pérez')
+      expect(ordenGuardada?.estado).toBe(EstadoOrden.PEDIDA)
+
+      const itemsGuardados = await db
+        .selectFrom('items_pedidos')
+        .selectAll()
+        .where('orden_id', '=', response.body.id)
+        .execute()
+
+      expect(itemsGuardados).toHaveLength(2)
+      expect(itemsGuardados).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ producto_sku: 'PROD-001', cantidad: 2 }),
+          expect.objectContaining({ producto_sku: 'PROD-002', cantidad: 1 }),
+        ]),
+      )
     })
 
-    it('debe retornar 400 Bad Request si faltan campos obligatorios', async () => {
+    it('debe retornar 400 Bad Request si faltan datos requeridos (ValidationPipe)', async () => {
       const invalidPayload = {
         clienteNombre: '',
         clienteDireccion: 'Calle Falsa 123',
@@ -150,7 +121,7 @@ describe('Ordenes (e2e)', () => {
     })
 
     it('debe retornar 400 Bad Request si la lista de items está vacía', async () => {
-      const payloadConItemsVacios = {
+      const payloadSinItems = {
         clienteNombre: 'María López',
         clienteDireccion: 'Av. Santa Fe 2000',
         items: [],
@@ -158,7 +129,7 @@ describe('Ordenes (e2e)', () => {
 
       const response = await request(app.getHttpServer())
         .post('/ordenes')
-        .send(payloadConItemsVacios)
+        .send(payloadSinItems)
         .expect(400)
 
       expect(response.body.statusCode).toBe(400)
@@ -166,18 +137,28 @@ describe('Ordenes (e2e)', () => {
   })
 
   describe('GET /ordenes/:id', () => {
-    it('debe retornar una orden existente (200 OK)', async () => {
-      const creada = await repository.create({
-        clienteNombre: 'Carlos Tevez',
-        clienteDireccion: 'Brandsen 805',
-        items: [{ productoSku: 'PROD-BOCA', cantidad: 1 }],
-      })
+    it('debe recuperar una orden previamente persistida en la base de datos (200 OK)', async () => {
+      // Inserción previa directamente en PostgreSQL
+      const ordenInsertada = await db
+        .insertInto('ordenes')
+        .values({
+          cliente_nombre: 'Carlos Gómez',
+          cliente_direccion: 'Brandsen 805',
+          estado: EstadoOrden.PEDIDA,
+          fecha_completada: null,
+          repartidor_legajo: null,
+          vehiculo_id: null,
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow()
 
-      const response = await request(app.getHttpServer()).get(`/ordenes/${creada.id}`).expect(200)
+      const response = await request(app.getHttpServer())
+        .get(`/ordenes/${ordenInsertada.id}`)
+        .expect(200)
 
       expect(response.body).toEqual({
-        id: creada.id,
-        clienteNombre: 'Carlos Tevez',
+        id: ordenInsertada.id,
+        clienteNombre: 'Carlos Gómez',
         clienteDireccion: 'Brandsen 805',
         estado: EstadoOrden.PEDIDA,
         fechaCompletada: null,
@@ -186,26 +167,33 @@ describe('Ordenes (e2e)', () => {
       })
     })
 
-    it('debe retornar 404 Not Found cuando la orden no existe', async () => {
-      const response = await request(app.getHttpServer()).get('/ordenes/999').expect(404)
+    it('debe retornar 404 Not Found si la orden no existe en la base de datos', async () => {
+      const response = await request(app.getHttpServer()).get('/ordenes/999999').expect(404)
 
       expect(response.body.statusCode).toBe(404)
     })
 
-    it('debe retornar 400 Bad Request cuando el id no es numérico', async () => {
-      const response = await request(app.getHttpServer()).get('/ordenes/abc').expect(400)
+    it('debe retornar 400 Bad Request si el id no es un entero válido', async () => {
+      const response = await request(app.getHttpServer()).get('/ordenes/id-no-valido').expect(400)
 
       expect(response.body.statusCode).toBe(400)
     })
   })
 
   describe('PATCH /ordenes/:id/estado', () => {
-    it('debe transicionar orden de Pedida a Lista correctamente (200 OK)', async () => {
-      const orden = await repository.create({
-        clienteNombre: 'Ana Frank',
-        clienteDireccion: 'Amsterdam 100',
-        items: [{ productoSku: 'LIBRO-01', cantidad: 1 }],
-      })
+    it('debe actualizar el estado en PostgreSQL de Pedida a Lista (200 OK)', async () => {
+      const orden = await db
+        .insertInto('ordenes')
+        .values({
+          cliente_nombre: 'Ana Frank',
+          cliente_direccion: 'Amsterdam 100',
+          estado: EstadoOrden.PEDIDA,
+          fecha_completada: null,
+          repartidor_legajo: null,
+          vehiculo_id: null,
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow()
 
       const updatePayload: UpdateEstadoOrdenDto = {
         nuevoEstado: EstadoOrden.LISTA,
@@ -217,15 +205,30 @@ describe('Ordenes (e2e)', () => {
         .expect(200)
 
       expect(response.body.estado).toBe(EstadoOrden.LISTA)
+
+      // Verificación en la base de datos
+      const ordenEnDb = await db
+        .selectFrom('ordenes')
+        .selectAll()
+        .where('id', '=', orden.id)
+        .executeTakeFirst()
+
+      expect(ordenEnDb?.estado).toBe(EstadoOrden.LISTA)
     })
 
-    it('debe fallar (400 Bad Request) si pasa a Enviada sin repartidor ni vehículo', async () => {
-      const orden = await repository.create({
-        clienteNombre: 'Pedro Pascal',
-        clienteDireccion: 'Santiago 50',
-        items: [{ productoSku: 'PROD-01', cantidad: 1 }],
-      })
-      await repository.updateEstado(orden.id, EstadoOrden.LISTA)
+    it('debe rechazar (400 Bad Request) el paso a Enviada sin asignar repartidor ni vehículo', async () => {
+      const orden = await db
+        .insertInto('ordenes')
+        .values({
+          cliente_nombre: 'Pedro Pascal',
+          cliente_direccion: 'Santiago 50',
+          estado: EstadoOrden.LISTA,
+          fecha_completada: null,
+          repartidor_legajo: null,
+          vehiculo_id: null,
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow()
 
       const updatePayload: UpdateEstadoOrdenDto = {
         nuevoEstado: EstadoOrden.ENVIADA,
@@ -239,18 +242,25 @@ describe('Ordenes (e2e)', () => {
       expect(response.body.statusCode).toBe(400)
     })
 
-    it('debe permitir transicionar a Enviada con repartidor y vehículo asignados (200 OK)', async () => {
-      const orden = await repository.create({
-        clienteNombre: 'Pedro Pascal',
-        clienteDireccion: 'Santiago 50',
-        items: [{ productoSku: 'PROD-01', cantidad: 1 }],
-      })
-      await repository.updateEstado(orden.id, EstadoOrden.LISTA)
+    it('debe permitir transicionar a Enviada asignando repartidor y vehículo válidos existentes (200 OK)', async () => {
+      const orden = await db
+        .insertInto('ordenes')
+        .values({
+          cliente_nombre: 'Pedro Pascal',
+          cliente_direccion: 'Santiago 50',
+          estado: EstadoOrden.LISTA,
+          fecha_completada: null,
+          repartidor_legajo: null,
+          vehiculo_id: null,
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow()
 
+      // REP-101 y vehiculo 1 existen por las seeds de la base de datos
       const updatePayload: UpdateEstadoOrdenDto = {
         nuevoEstado: EstadoOrden.ENVIADA,
-        repartidorLegajo: 'REP-007',
-        vehiculoId: 2,
+        repartidorLegajo: 'REP-101',
+        vehiculoId: 1,
       }
 
       const response = await request(app.getHttpServer())
@@ -259,16 +269,34 @@ describe('Ordenes (e2e)', () => {
         .expect(200)
 
       expect(response.body.estado).toBe(EstadoOrden.ENVIADA)
-      expect(response.body.repartidorLegajo).toBe('REP-007')
-      expect(response.body.vehiculoId).toBe(2)
+      expect(response.body.repartidorLegajo).toBe('REP-101')
+      expect(response.body.vehiculoId).toBe(1)
+
+      // Verificación en PostgreSQL
+      const ordenEnDb = await db
+        .selectFrom('ordenes')
+        .selectAll()
+        .where('id', '=', orden.id)
+        .executeTakeFirst()
+
+      expect(ordenEnDb?.estado).toBe(EstadoOrden.ENVIADA)
+      expect(ordenEnDb?.repartidor_legajo).toBe('REP-101')
+      expect(ordenEnDb?.vehiculo_id).toBe(1)
     })
 
-    it('debe retornar 409 Conflict si se intenta pasar al mismo estado actual', async () => {
-      const orden = await repository.create({
-        clienteNombre: 'Lucía Méndez',
-        clienteDireccion: 'Cordoba 300',
-        items: [{ productoSku: 'PROD-01', cantidad: 1 }],
-      })
+    it('debe responder 409 Conflict si se solicita cambiar al mismo estado actual', async () => {
+      const orden = await db
+        .insertInto('ordenes')
+        .values({
+          cliente_nombre: 'Lucía Méndez',
+          cliente_direccion: 'Córdoba 300',
+          estado: EstadoOrden.PEDIDA,
+          fecha_completada: null,
+          repartidor_legajo: null,
+          vehiculo_id: null,
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow()
 
       const updatePayload: UpdateEstadoOrdenDto = {
         nuevoEstado: EstadoOrden.PEDIDA,
