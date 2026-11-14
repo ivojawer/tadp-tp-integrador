@@ -27,7 +27,11 @@ export class OrdenesController {
   @Get(':id')
   @ApiOperation({ summary: 'Obtener detalle de una orden por su identificador' })
   @ApiParam({ name: 'id', description: 'ID numérico de la orden', example: 1 })
-  @ApiResponse({ status: 200, description: 'Orden encontrada con éxito', type: Orden })
+  @ApiResponse({
+    status: 200,
+    description: 'Orden encontrada con éxito con sus líneas de pedido e items físicos',
+    type: Orden,
+  })
   @ApiResponse({ status: 400, description: 'Identificador provisto inválido' })
   @ApiResponse({ status: 404, description: 'La orden no existe' })
   async findById(@Param('id', ParseIntPipe) id: number): Promise<Orden> {

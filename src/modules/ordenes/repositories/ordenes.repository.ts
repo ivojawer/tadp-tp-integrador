@@ -2,7 +2,8 @@ import { Inject, Injectable } from '@nestjs/common'
 import { Kysely } from 'kysely'
 import { KYSELY_DB } from '../../../common/database/database.provider'
 import { Database } from '../../../common/database/types'
-import { EstadoOrden, Orden } from '../entities/orden.entity'
+import { EstadoFisicoItem } from '../../inventario/entities/item.entity'
+import { EstadoOrden, ItemPedido, Orden } from '../entities/orden.entity'
 
 export interface IOrdenesRepository {
   findById(id: number): Promise<Orden | null>
@@ -25,17 +26,72 @@ export class OrdenesRepository implements IOrdenesRepository {
   constructor(@Inject(KYSELY_DB) private readonly db: Kysely<Database>) {}
 
   async findById(id: number): Promise<Orden | null> {
-    const row = await this.db
+    const rows = await this.db
       .selectFrom('ordenes')
-      .selectAll()
-      .where('id', '=', id)
-      .executeTakeFirst()
+      .leftJoin('items_pedidos', 'items_pedidos.orden_id', 'ordenes.id')
+      .select([
+        'ordenes.id as orden_id',
+        'ordenes.cliente_nombre',
+        'ordenes.cliente_direccion',
+        'ordenes.estado',
+        'ordenes.fecha_completada',
+        'ordenes.repartidor_legajo',
+        'ordenes.vehiculo_id',
+        'items_pedidos.id as item_pedido_id',
+        'items_pedidos.producto_sku as item_pedido_sku',
+        'items_pedidos.cantidad as item_pedido_cantidad',
+      ])
+      .where('ordenes.id', '=', id)
+      .execute()
 
-    if (!row) {
+    if (rows.length === 0) {
       return null
     }
 
-    return this.mapToEntity(row)
+    const firstRow = rows[0]
+
+    // Cargar los items físicos asignados a esta orden
+    const itemsFisicos = await this.db
+      .selectFrom('items')
+      .selectAll()
+      .where('orden_id', '=', id)
+      .execute()
+
+    const itemsPedidos: ItemPedido[] = []
+    const seenItemPedidoIds = new Set<number>()
+
+    for (const r of rows) {
+      if (r.item_pedido_id && !seenItemPedidoIds.has(r.item_pedido_id)) {
+        seenItemPedidoIds.add(r.item_pedido_id)
+
+        const itemsAsignados = itemsFisicos
+          .filter((item) => item.producto_sku === r.item_pedido_sku)
+          .map((item) => ({
+            id: item.id,
+            productoSku: item.producto_sku,
+            estadoFisico: item.estado_fisico as EstadoFisicoItem,
+            ordenId: item.orden_id,
+          }))
+
+        itemsPedidos.push({
+          id: r.item_pedido_id,
+          productoSku: r.item_pedido_sku!,
+          cantidad: r.item_pedido_cantidad!,
+          items: itemsAsignados,
+        })
+      }
+    }
+
+    return {
+      id: firstRow.orden_id,
+      clienteNombre: firstRow.cliente_nombre,
+      clienteDireccion: firstRow.cliente_direccion,
+      estado: firstRow.estado as EstadoOrden,
+      fechaCompletada: firstRow.fecha_completada,
+      repartidorLegajo: firstRow.repartidor_legajo,
+      vehiculoId: firstRow.vehiculo_id,
+      itemsPedidos,
+    }
   }
 
   async create(data: {
@@ -57,8 +113,10 @@ export class OrdenesRepository implements IOrdenesRepository {
         .returningAll()
         .executeTakeFirstOrThrow()
 
+      let itemsPedidos: ItemPedido[] = []
+
       if (data.items.length > 0) {
-        await trx
+        const insertedRows = await trx
           .insertInto('items_pedidos')
           .values(
             data.items.map((item) => ({
@@ -67,10 +125,27 @@ export class OrdenesRepository implements IOrdenesRepository {
               cantidad: item.cantidad,
             })),
           )
+          .returningAll()
           .execute()
+
+        itemsPedidos = insertedRows.map((r) => ({
+          id: r.id,
+          productoSku: r.producto_sku,
+          cantidad: r.cantidad,
+          items: [],
+        }))
       }
 
-      return this.mapToEntity(insertedOrder)
+      return {
+        id: insertedOrder.id,
+        clienteNombre: insertedOrder.cliente_nombre,
+        clienteDireccion: insertedOrder.cliente_direccion,
+        estado: insertedOrder.estado as EstadoOrden,
+        fechaCompletada: insertedOrder.fecha_completada,
+        repartidorLegajo: insertedOrder.repartidor_legajo,
+        vehiculoId: insertedOrder.vehiculo_id,
+        itemsPedidos,
+      }
     })
   }
 
@@ -79,7 +154,7 @@ export class OrdenesRepository implements IOrdenesRepository {
     nuevoEstado: EstadoOrden,
     options?: { repartidorLegajo?: string; vehiculoId?: number; fechaCompletada?: Date },
   ): Promise<Orden> {
-    const updated = await this.db
+    await this.db
       .updateTable('ordenes')
       .set({
         estado: nuevoEstado,
@@ -88,21 +163,9 @@ export class OrdenesRepository implements IOrdenesRepository {
         fecha_completada: options?.fechaCompletada ?? null,
       })
       .where('id', '=', id)
-      .returningAll()
       .executeTakeFirstOrThrow()
 
-    return this.mapToEntity(updated)
-  }
-
-  private mapToEntity(row: any): Orden {
-    return {
-      id: row.id,
-      clienteNombre: row.cliente_nombre,
-      clienteDireccion: row.cliente_direccion,
-      estado: row.estado as EstadoOrden,
-      fechaCompletada: row.fecha_completada,
-      repartidorLegajo: row.repartidor_legajo,
-      vehiculoId: row.vehiculo_id,
-    }
+    const orden = await this.findById(id)
+    return orden!
   }
 }

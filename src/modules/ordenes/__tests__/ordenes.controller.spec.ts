@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
+import { EstadoFisicoItem } from '../../inventario/entities/item.entity'
 import { OrdenesController } from '../controllers/ordenes.controller'
 import { EstadoOrden, Orden } from '../entities/orden.entity'
 import { OrdenesService } from '../services/ordenes.service'
@@ -20,6 +21,21 @@ describe('OrdenesController', () => {
     fechaCompletada: null,
     repartidorLegajo: null,
     vehiculoId: null,
+    itemsPedidos: [
+      {
+        id: 1,
+        productoSku: 'SKU-01',
+        cantidad: 1,
+        items: [
+          {
+            id: 10,
+            productoSku: 'SKU-01',
+            estadoFisico: EstadoFisicoItem.RESERVADO,
+            ordenId: 1,
+          },
+        ],
+      },
+    ],
   }
 
   beforeEach(async () => {
@@ -53,6 +69,18 @@ describe('OrdenesController', () => {
       const result = await controller.findById(1)
       expect(result).toEqual(mockOrden)
       expect(service.findById).toHaveBeenCalledWith(1)
+    })
+
+    it('el shape de respuesta incluye itemsPedidos e items físicos', async () => {
+      ;(service.findById as jest.Mock).mockResolvedValue(mockOrden)
+
+      const result = await controller.findById(1)
+      expect(result.itemsPedidos).toBeDefined()
+      expect(result.itemsPedidos).toHaveLength(1)
+      expect(result.itemsPedidos[0].productoSku).toBe('SKU-01')
+      expect(result.itemsPedidos[0].cantidad).toBe(1)
+      expect(result.itemsPedidos[0].items).toHaveLength(1)
+      expect(result.itemsPedidos[0].items[0].estadoFisico).toBe(EstadoFisicoItem.RESERVADO)
     })
 
     it('debe propagar NotFoundException adecuadamente', async () => {

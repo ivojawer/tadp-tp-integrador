@@ -1,4 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger'
+import { ItemPedido } from './item-pedido.entity'
+
+export { ItemPedido }
 
 export enum EstadoOrden {
   PEDIDA = 'Pedida',
@@ -32,4 +35,10 @@ export class Orden {
 
   @ApiProperty({ required: false, nullable: true, example: 1 })
   vehiculoId: number | null
+
+  @ApiProperty({
+    type: () => [ItemPedido],
+    description: 'Líneas de productos solicitados con sus items físicos asignados',
+  })
+  itemsPedidos: ItemPedido[]
 }
