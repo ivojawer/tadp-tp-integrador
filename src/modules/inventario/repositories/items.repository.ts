@@ -20,8 +20,8 @@ export interface IItemsRepository {
     ordenId: number,
     trx: Transaction<Database>,
   ): Promise<void>
-  prepararPorOrden(ordenId: number, trx: Transaction<Database>): Promise<void>
-  entregarPorOrden(ordenId: number, trx: Transaction<Database>): Promise<void>
+  prepararPorOrden(ordenId: number, trx?: Transaction<Database>): Promise<void>
+  entregarPorOrden(ordenId: number, trx?: Transaction<Database>): Promise<void>
   findByOrden(ordenId: number): Promise<Item[]>
 }
 
@@ -96,8 +96,9 @@ export class ItemsRepository implements IItemsRepository {
       .execute()
   }
 
-  async prepararPorOrden(ordenId: number, trx: Transaction<Database>): Promise<void> {
-    await trx
+  async prepararPorOrden(ordenId: number, trx?: Transaction<Database>): Promise<void> {
+    const executor = trx ?? this.db
+    await executor
       .updateTable('items')
       .set({ estado_fisico: EstadoFisicoItem.PREPARADO })
       .where('orden_id', '=', ordenId)
@@ -105,8 +106,9 @@ export class ItemsRepository implements IItemsRepository {
       .execute()
   }
 
-  async entregarPorOrden(ordenId: number, trx: Transaction<Database>): Promise<void> {
-    await trx
+  async entregarPorOrden(ordenId: number, trx?: Transaction<Database>): Promise<void> {
+    const executor = trx ?? this.db
+    await executor
       .updateTable('items')
       .set({ estado_fisico: EstadoFisicoItem.ENTREGADO })
       .where('orden_id', '=', ordenId)

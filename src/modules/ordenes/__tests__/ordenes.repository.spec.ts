@@ -295,5 +295,96 @@ describe('OrdenesRepository (Integration with test DB)', () => {
         .executeTakeFirstOrThrow()
       expect(enDb.estado).toBe(EstadoOrden.LISTA)
     })
+
+    it('ejecuta el callback onTransaction dentro de la misma transacción y persiste los cambios', async () => {
+      const orden = await repository.create({
+        clienteNombre: 'Sofía Martínez',
+        clienteDireccion: 'Av. Corrientes 1000',
+        items: [{ productoSku: 'PROD-001', cantidad: 1 }],
+      })
+
+      await db
+        .insertInto('items')
+        .values({
+          producto_sku: 'PROD-001',
+          estado_fisico: EstadoFisicoItem.RESERVADO,
+          orden_id: orden.id,
+        })
+        .execute()
+
+      const actualizada = await repository.updateEstado(
+        orden.id,
+        EstadoOrden.LISTA,
+        undefined,
+        async (ordenId, trx) => {
+          await trx
+            .updateTable('items')
+            .set({ estado_fisico: EstadoFisicoItem.PREPARADO })
+            .where('orden_id', '=', ordenId)
+            .execute()
+        },
+      )
+
+      expect(actualizada.estado).toBe(EstadoOrden.LISTA)
+      expect(actualizada.itemsPedidos[0].items[0].estadoFisico).toBe(EstadoFisicoItem.PREPARADO)
+
+      const ordenEnDb = await db
+        .selectFrom('ordenes')
+        .selectAll()
+        .where('id', '=', orden.id)
+        .executeTakeFirstOrThrow()
+      expect(ordenEnDb.estado).toBe(EstadoOrden.LISTA)
+
+      const itemEnDb = await db
+        .selectFrom('items')
+        .selectAll()
+        .where('orden_id', '=', orden.id)
+        .executeTakeFirstOrThrow()
+      expect(itemEnDb.estado_fisico).toBe(EstadoFisicoItem.PREPARADO)
+    })
+
+    it('realiza rollback total si el callback onTransaction falla', async () => {
+      const orden = await repository.create({
+        clienteNombre: 'Martín Palermo',
+        clienteDireccion: 'Brandsen 805',
+        items: [{ productoSku: 'PROD-001', cantidad: 1 }],
+      })
+
+      await db
+        .insertInto('items')
+        .values({
+          producto_sku: 'PROD-001',
+          estado_fisico: EstadoFisicoItem.RESERVADO,
+          orden_id: orden.id,
+        })
+        .execute()
+
+      await expect(
+        repository.updateEstado(orden.id, EstadoOrden.LISTA, undefined, async (ordenId, trx) => {
+          await trx
+            .updateTable('items')
+            .set({ estado_fisico: EstadoFisicoItem.PREPARADO })
+            .where('orden_id', '=', ordenId)
+            .execute()
+          throw new Error('Fallo intencional para verificar rollback')
+        }),
+      ).rejects.toThrow('Fallo intencional para verificar rollback')
+
+      // Verificar que el estado de la orden no cambió (sigue en Pedida)
+      const ordenEnDb = await db
+        .selectFrom('ordenes')
+        .selectAll()
+        .where('id', '=', orden.id)
+        .executeTakeFirstOrThrow()
+      expect(ordenEnDb.estado).toBe(EstadoOrden.PEDIDA)
+
+      // Verificar que el item físico no cambió (sigue en Reservado)
+      const itemEnDb = await db
+        .selectFrom('items')
+        .selectAll()
+        .where('orden_id', '=', orden.id)
+        .executeTakeFirstOrThrow()
+      expect(itemEnDb.estado_fisico).toBe(EstadoFisicoItem.RESERVADO)
+    })
   })
 })

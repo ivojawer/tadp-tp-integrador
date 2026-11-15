@@ -46,7 +46,21 @@ describe('OrdenesService', () => {
     const mockRepo: jest.Mocked<IOrdenesRepository> = {
       findById: jest.fn(),
       create: jest.fn(),
-      updateEstado: jest.fn(),
+      updateEstado: jest
+        .fn()
+        .mockImplementation(async (id, nuevoEstado, options, onTransaction) => {
+          if (onTransaction) {
+            await onTransaction(id, {} as any)
+          }
+          return {
+            ...mockOrdenBase,
+            id,
+            estado: nuevoEstado,
+            fechaCompletada: options?.fechaCompletada ?? null,
+            repartidorLegajo: options?.repartidorLegajo ?? null,
+            vehiculoId: options?.vehiculoId ?? null,
+          }
+        }),
     }
 
     const mockItemsRepo: jest.Mocked<IItemsRepository> = {
@@ -241,16 +255,80 @@ describe('OrdenesService', () => {
   describe('cambiarEstado', () => {
     it('debe permitir transición válida de Pedida a Lista', async () => {
       repository.findById.mockResolvedValue(mockOrdenBase)
-      repository.updateEstado.mockResolvedValue({
-        ...mockOrdenBase,
-        estado: EstadoOrden.LISTA,
-      })
 
       const result = await service.cambiarEstado(1, {
         nuevoEstado: EstadoOrden.LISTA,
       })
 
       expect(result.estado).toBe(EstadoOrden.LISTA)
+    })
+
+    // --- T4 tests ---
+
+    it('cambiarEstado Pedida → Lista → llama prepararPorOrden(ordenId) exactamente una vez', async () => {
+      repository.findById.mockResolvedValue(mockOrdenBase)
+
+      const result = await service.cambiarEstado(1, {
+        nuevoEstado: EstadoOrden.LISTA,
+      })
+
+      expect(result.estado).toBe(EstadoOrden.LISTA)
+      expect(itemsRepository.prepararPorOrden).toHaveBeenCalledTimes(1)
+      expect(itemsRepository.prepararPorOrden).toHaveBeenCalledWith(1, expect.anything())
+      expect(itemsRepository.entregarPorOrden).not.toHaveBeenCalled()
+    })
+
+    it('cambiarEstado Lista → Enviada → NO llama ni a prepararPorOrden ni a entregarPorOrden', async () => {
+      const ordenLista: Orden = {
+        ...mockOrdenBase,
+        estado: EstadoOrden.LISTA,
+      }
+      repository.findById.mockResolvedValue(ordenLista)
+
+      const result = await service.cambiarEstado(1, {
+        nuevoEstado: EstadoOrden.ENVIADA,
+        repartidorLegajo: 'REP-01',
+        vehiculoId: 10,
+      })
+
+      expect(result.estado).toBe(EstadoOrden.ENVIADA)
+      expect(itemsRepository.prepararPorOrden).not.toHaveBeenCalled()
+      expect(itemsRepository.entregarPorOrden).not.toHaveBeenCalled()
+    })
+
+    it('cambiarEstado Enviada → Completada → llama entregarPorOrden(ordenId) exactamente una vez, retorna orden con fechaCompletada seteada', async () => {
+      const ordenEnviada: Orden = {
+        ...mockOrdenBase,
+        estado: EstadoOrden.ENVIADA,
+        repartidorLegajo: 'REP-01',
+        vehiculoId: 10,
+      }
+      repository.findById.mockResolvedValue(ordenEnviada)
+
+      const result = await service.cambiarEstado(1, {
+        nuevoEstado: EstadoOrden.COMPLETADA,
+      })
+
+      expect(result.estado).toBe(EstadoOrden.COMPLETADA)
+      expect(itemsRepository.entregarPorOrden).toHaveBeenCalledTimes(1)
+      expect(itemsRepository.entregarPorOrden).toHaveBeenCalledWith(1, expect.anything())
+      expect(itemsRepository.prepararPorOrden).not.toHaveBeenCalled()
+      expect(result.fechaCompletada).toBeInstanceOf(Date)
+    })
+
+    it('cambiarEstado falla en prepararPorOrden → la orden NO cambia de estado (rollback)', async () => {
+      repository.findById.mockResolvedValue(mockOrdenBase)
+      itemsRepository.prepararPorOrden.mockRejectedValue(
+        new Error('Fallo en base de datos al preparar items'),
+      )
+
+      await expect(
+        service.cambiarEstado(1, {
+          nuevoEstado: EstadoOrden.LISTA,
+        }),
+      ).rejects.toThrow('Fallo en base de datos al preparar items')
+
+      expect(itemsRepository.prepararPorOrden).toHaveBeenCalledTimes(1)
     })
 
     it('debe rechazar transición directa de Pedida a Enviada', async () => {

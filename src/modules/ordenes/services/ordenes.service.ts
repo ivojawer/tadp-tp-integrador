@@ -75,6 +75,19 @@ export class OrdenesService {
       id,
       updateDto.nuevoEstado,
       options,
+      async (ordenId, trx) => {
+        if (
+          ordenActual.estado === EstadoOrden.PEDIDA &&
+          updateDto.nuevoEstado === EstadoOrden.LISTA
+        ) {
+          await this.itemsRepository.prepararPorOrden(ordenId, trx)
+        } else if (
+          ordenActual.estado === EstadoOrden.ENVIADA &&
+          updateDto.nuevoEstado === EstadoOrden.COMPLETADA
+        ) {
+          await this.itemsRepository.entregarPorOrden(ordenId, trx)
+        }
+      },
     )
 
     this.logger.log(

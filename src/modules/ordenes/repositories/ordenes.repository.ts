@@ -6,7 +6,7 @@ import { EstadoFisicoItem } from '../../inventario/entities/item.entity'
 import { EstadoOrden, ItemPedido, Orden } from '../entities/orden.entity'
 
 export interface IOrdenesRepository {
-  findById(id: number): Promise<Orden | null>
+  findById(id: number, trx?: Transaction<Database>): Promise<Orden | null>
   create(
     data: {
       clienteNombre: string
@@ -19,6 +19,7 @@ export interface IOrdenesRepository {
     id: number,
     nuevoEstado: EstadoOrden,
     options?: { repartidorLegajo?: string; vehiculoId?: number; fechaCompletada?: Date },
+    onTransaction?: (ordenId: number, trx: Transaction<Database>) => Promise<void>,
   ): Promise<Orden>
 }
 
@@ -28,8 +29,9 @@ export const ORDENES_REPOSITORY = 'ORDENES_REPOSITORY'
 export class OrdenesRepository implements IOrdenesRepository {
   constructor(@Inject(KYSELY_DB) private readonly db: Kysely<Database>) {}
 
-  async findById(id: number): Promise<Orden | null> {
-    const rows = await this.db
+  async findById(id: number, trx?: Transaction<Database>): Promise<Orden | null> {
+    const executor = trx ?? this.db
+    const rows = await executor
       .selectFrom('ordenes')
       .leftJoin('items_pedidos', 'items_pedidos.orden_id', 'ordenes.id')
       .select([
@@ -54,7 +56,7 @@ export class OrdenesRepository implements IOrdenesRepository {
     const firstRow = rows[0]
 
     // Cargar los items físicos asignados a esta orden
-    const itemsFisicos = await this.db
+    const itemsFisicos = await executor
       .selectFrom('items')
       .selectAll()
       .where('orden_id', '=', id)
@@ -163,19 +165,26 @@ export class OrdenesRepository implements IOrdenesRepository {
     id: number,
     nuevoEstado: EstadoOrden,
     options?: { repartidorLegajo?: string; vehiculoId?: number; fechaCompletada?: Date },
+    onTransaction?: (ordenId: number, trx: Transaction<Database>) => Promise<void>,
   ): Promise<Orden> {
-    await this.db
-      .updateTable('ordenes')
-      .set({
-        estado: nuevoEstado,
-        repartidor_legajo: options?.repartidorLegajo ?? null,
-        vehiculo_id: options?.vehiculoId ?? null,
-        fecha_completada: options?.fechaCompletada ?? null,
-      })
-      .where('id', '=', id)
-      .executeTakeFirstOrThrow()
+    return await this.db.transaction().execute(async (trx) => {
+      await trx
+        .updateTable('ordenes')
+        .set({
+          estado: nuevoEstado,
+          repartidor_legajo: options?.repartidorLegajo ?? null,
+          vehiculo_id: options?.vehiculoId ?? null,
+          fecha_completada: options?.fechaCompletada ?? null,
+        })
+        .where('id', '=', id)
+        .executeTakeFirstOrThrow()
 
-    const orden = await this.findById(id)
-    return orden!
+      if (onTransaction) {
+        await onTransaction(id, trx)
+      }
+
+      const orden = await this.findById(id, trx)
+      return orden!
+    })
   }
 }
