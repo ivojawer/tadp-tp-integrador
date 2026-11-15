@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS items (
 
 CREATE TABLE IF NOT EXISTS geo_logs (
   id SERIAL PRIMARY KEY,
-  orden_id INTEGER NOT NULL REFERENCES ordenes(id) ON DELETE CASCADE,
+  vehiculo_id INTEGER NOT NULL REFERENCES vehiculos(id) ON DELETE CASCADE,
   latitud DOUBLE PRECISION NOT NULL,
   longitud DOUBLE PRECISION NOT NULL,
   fecha_hora TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS geo_logs (
 CREATE INDEX IF NOT EXISTS idx_ordenes_estado ON ordenes(estado);
 CREATE INDEX IF NOT EXISTS idx_items_pedidos_orden ON items_pedidos(orden_id);
 CREATE INDEX IF NOT EXISTS idx_items_orden ON items(orden_id);
-CREATE INDEX IF NOT EXISTS idx_geo_logs_orden ON geo_logs(orden_id);
+CREATE INDEX IF NOT EXISTS idx_geo_logs_vehiculo ON geo_logs(vehiculo_id);
 
 -- Datos iniciales (Seeds)
 INSERT INTO usuarios (legajo, nombre, email, password)

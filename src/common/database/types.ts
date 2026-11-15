@@ -57,7 +57,7 @@ export interface ItemTable {
 
 export interface GeoLogTable {
   id: Generated<number>
-  orden_id: number
+  vehiculo_id: number
   latitud: number
   longitud: number
   fecha_hora: Date
