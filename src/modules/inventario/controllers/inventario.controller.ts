@@ -9,14 +9,14 @@ import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { EstadoItemsDto } from '../dto/estado-items.dto'
 import { InventarioService } from '../services/inventario.service'
 
-@ApiTags('Inventario')
-@Controller(['inventario', 'items'])
+@ApiTags('Inventario', 'Items')
+@Controller('items')
 export class InventarioController {
   private readonly logger = new Logger(InventarioController.name)
 
   constructor(private readonly inventarioService: InventarioService) {}
 
-  @Get(['items/estado', 'estado', 'items', ''])
+  @Get()
   @ApiOperation({
     summary: 'Consultar el estado de los items físicos agrupados por SKU',
   })
