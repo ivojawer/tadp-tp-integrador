@@ -1,7 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common'
 import { OrdenesService } from '../../ordenes/services/ordenes.service'
 import { GeoLog } from '../entities/geo-log.entity'
-import { IGeoLogsRepository, GEOLOGS_REPOSITORY } from '../repositories/geo-logs.repository'
+import { GEOLOGS_REPOSITORY, IGeoLogsRepository } from '../repositories/geo-logs.repository'
 
 @Injectable()
 export class TrackingService {
@@ -37,5 +37,17 @@ export class TrackingService {
     }
 
     return geoLog
+  }
+
+  async registrarUbicacion(data: {
+    vehiculoId: number
+    latitud: number
+    longitud: number
+  }): Promise<GeoLog> {
+    return this.geoLogsRepo.registrar(data)
+  }
+
+  async findUltimoByVehiculo(vehiculoId: number): Promise<GeoLog | null> {
+    return this.geoLogsRepo.findUltimoByVehiculo(vehiculoId)
   }
 }
