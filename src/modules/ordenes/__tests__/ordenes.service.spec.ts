@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
+import { IItemsRepository, ITEMS_REPOSITORY } from '../../inventario/repositories/items.repository'
 import { EstadoFisicoItem } from '../../inventario/entities/item.entity'
 import { EstadoOrden, Orden } from '../entities/orden.entity'
 import { IOrdenesRepository, ORDENES_REPOSITORY } from '../repositories/ordenes.repository'
@@ -8,6 +9,7 @@ import { OrdenesService } from '../services/ordenes.service'
 describe('OrdenesService', () => {
   let service: OrdenesService
   let repository: jest.Mocked<IOrdenesRepository>
+  let itemsRepository: jest.Mocked<IItemsRepository>
 
   const mockOrdenBase: Orden = {
     id: 1,
@@ -47,6 +49,15 @@ describe('OrdenesService', () => {
       updateEstado: jest.fn(),
     }
 
+    const mockItemsRepo: jest.Mocked<IItemsRepository> = {
+      crearItem: jest.fn(),
+      countDisponibles: jest.fn(),
+      reservar: jest.fn(),
+      prepararPorOrden: jest.fn(),
+      entregarPorOrden: jest.fn(),
+      findByOrden: jest.fn(),
+    }
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrdenesService,
@@ -54,11 +65,16 @@ describe('OrdenesService', () => {
           provide: ORDENES_REPOSITORY,
           useValue: mockRepo,
         },
+        {
+          provide: ITEMS_REPOSITORY,
+          useValue: mockItemsRepo,
+        },
       ],
     }).compile()
 
     service = module.get<OrdenesService>(OrdenesService)
     repository = module.get(ORDENES_REPOSITORY)
+    itemsRepository = module.get(ITEMS_REPOSITORY)
   })
 
   it('debe estar definido el servicio', () => {
@@ -93,6 +109,7 @@ describe('OrdenesService', () => {
 
   describe('create', () => {
     it('debe crear y retornar una orden con estado Pedida', async () => {
+      itemsRepository.countDisponibles.mockResolvedValue(5)
       repository.create.mockResolvedValue(mockOrdenBase)
 
       const result = await service.create({
@@ -117,6 +134,7 @@ describe('OrdenesService', () => {
           },
         ],
       }
+      itemsRepository.countDisponibles.mockResolvedValue(5)
       repository.create.mockResolvedValue(ordenRecienCreada)
 
       const result = await service.create({
@@ -130,6 +148,93 @@ describe('OrdenesService', () => {
       expect(result.itemsPedidos[0].productoSku).toBe('SKU-01')
       expect(result.itemsPedidos[0].cantidad).toBe(2)
       expect(result.itemsPedidos[0].items).toEqual([])
+    })
+
+    // --- T3 tests ---
+
+    it('create con stock suficiente → llama reservar para cada sku y retorna la orden', async () => {
+      itemsRepository.countDisponibles.mockResolvedValue(10)
+      // repository.create ejecuta el callback onTransaction internamente;
+      // en el mock simplemente lo ignoramos y retornamos la orden
+      repository.create.mockImplementation(async (_data, onTransaction) => {
+        if (onTransaction) await onTransaction(mockOrdenBase.id, {} as any)
+        return mockOrdenBase
+      })
+      itemsRepository.reservar.mockResolvedValue(undefined)
+
+      const result = await service.create({
+        clienteNombre: 'Juan Pérez',
+        clienteDireccion: 'Calle 123',
+        items: [{ productoSku: 'SKU-01', cantidad: 2 }],
+      })
+
+      expect(itemsRepository.reservar).toHaveBeenCalledWith('SKU-01', 2, mockOrdenBase.id, {})
+      expect(result).toEqual(mockOrdenBase)
+    })
+
+    it('create cuando un sku no tiene stock suficiente → lanza ConflictException con el sku', async () => {
+      itemsRepository.countDisponibles.mockResolvedValue(1)
+
+      await expect(
+        service.create({
+          clienteNombre: 'Juan Pérez',
+          clienteDireccion: 'Calle 123',
+          items: [{ productoSku: 'SKU-FALTANTE', cantidad: 3 }],
+        }),
+      ).rejects.toThrow(ConflictException)
+
+      await expect(
+        service.create({
+          clienteNombre: 'Juan Pérez',
+          clienteDireccion: 'Calle 123',
+          items: [{ productoSku: 'SKU-FALTANTE', cantidad: 3 }],
+        }),
+      ).rejects.toThrow(/SKU-FALTANTE/)
+    })
+
+    it('create con múltiples items y el primero alcanza pero el segundo no → no reserva ninguno', async () => {
+      // SKU-01 tiene stock, SKU-02 no
+      itemsRepository.countDisponibles
+        .mockResolvedValueOnce(5) // SKU-01 OK
+        .mockResolvedValueOnce(0) // SKU-02 sin stock
+
+      await expect(
+        service.create({
+          clienteNombre: 'Juan Pérez',
+          clienteDireccion: 'Calle 123',
+          items: [
+            { productoSku: 'SKU-01', cantidad: 2 },
+            { productoSku: 'SKU-02', cantidad: 1 },
+          ],
+        }),
+      ).rejects.toThrow(ConflictException)
+
+      // reservar no debe haberse llamado en absoluto
+      expect(itemsRepository.reservar).not.toHaveBeenCalled()
+      // la orden tampoco debe haberse creado
+      expect(repository.create).not.toHaveBeenCalled()
+    })
+
+    it('create → countDisponibles se llama una vez por sku distinto en el dto', async () => {
+      itemsRepository.countDisponibles.mockResolvedValue(10)
+      repository.create.mockImplementation(async (_data, onTransaction) => {
+        if (onTransaction) await onTransaction(mockOrdenBase.id, {} as any)
+        return mockOrdenBase
+      })
+      itemsRepository.reservar.mockResolvedValue(undefined)
+
+      await service.create({
+        clienteNombre: 'Juan Pérez',
+        clienteDireccion: 'Calle 123',
+        items: [
+          { productoSku: 'SKU-A', cantidad: 1 },
+          { productoSku: 'SKU-B', cantidad: 2 },
+        ],
+      })
+
+      expect(itemsRepository.countDisponibles).toHaveBeenCalledTimes(2)
+      expect(itemsRepository.countDisponibles).toHaveBeenCalledWith('SKU-A')
+      expect(itemsRepository.countDisponibles).toHaveBeenCalledWith('SKU-B')
     })
   })
 

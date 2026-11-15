@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { Kysely } from 'kysely'
+import { Kysely, Transaction } from 'kysely'
 import { KYSELY_DB } from '../../../common/database/database.provider'
 import { Database } from '../../../common/database/types'
 import { EstadoFisicoItem } from '../../inventario/entities/item.entity'
@@ -7,11 +7,14 @@ import { EstadoOrden, ItemPedido, Orden } from '../entities/orden.entity'
 
 export interface IOrdenesRepository {
   findById(id: number): Promise<Orden | null>
-  create(data: {
-    clienteNombre: string
-    clienteDireccion: string
-    items: { productoSku: string; cantidad: number }[]
-  }): Promise<Orden>
+  create(
+    data: {
+      clienteNombre: string
+      clienteDireccion: string
+      items: { productoSku: string; cantidad: number }[]
+    },
+    onTransaction?: (ordenId: number, trx: Transaction<Database>) => Promise<void>,
+  ): Promise<Orden>
   updateEstado(
     id: number,
     nuevoEstado: EstadoOrden,
@@ -94,11 +97,14 @@ export class OrdenesRepository implements IOrdenesRepository {
     }
   }
 
-  async create(data: {
-    clienteNombre: string
-    clienteDireccion: string
-    items: { productoSku: string; cantidad: number }[]
-  }): Promise<Orden> {
+  async create(
+    data: {
+      clienteNombre: string
+      clienteDireccion: string
+      items: { productoSku: string; cantidad: number }[]
+    },
+    onTransaction?: (ordenId: number, trx: Transaction<Database>) => Promise<void>,
+  ): Promise<Orden> {
     return await this.db.transaction().execute(async (trx) => {
       const insertedOrder = await trx
         .insertInto('ordenes')
@@ -134,6 +140,10 @@ export class OrdenesRepository implements IOrdenesRepository {
           cantidad: r.cantidad,
           items: [],
         }))
+      }
+
+      if (onTransaction) {
+        await onTransaction(insertedOrder.id, trx)
       }
 
       return {

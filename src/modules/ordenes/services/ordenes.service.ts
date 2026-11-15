@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common'
+import { IItemsRepository, ITEMS_REPOSITORY } from '../../inventario/repositories/items.repository'
 import { CreateOrdenDto } from '../dto/create-orden.dto'
 import { UpdateEstadoOrdenDto } from '../dto/update-estado-orden.dto'
 import { EstadoOrden, Orden } from '../entities/orden.entity'
@@ -18,6 +19,8 @@ export class OrdenesService {
   constructor(
     @Inject(ORDENES_REPOSITORY)
     private readonly ordenesRepository: IOrdenesRepository,
+    @Inject(ITEMS_REPOSITORY)
+    private readonly itemsRepository: IItemsRepository,
   ) {}
 
   async findById(id: number): Promise<Orden> {
@@ -31,11 +34,28 @@ export class OrdenesService {
   async create(createOrdenDto: CreateOrdenDto): Promise<Orden> {
     this.logger.log(`Creando nueva orden para cliente: ${createOrdenDto.clienteNombre}`)
 
-    const orden = await this.ordenesRepository.create({
-      clienteNombre: createOrdenDto.clienteNombre,
-      clienteDireccion: createOrdenDto.clienteDireccion,
-      items: createOrdenDto.items,
-    })
+    // Verificar stock disponible para todos los items antes de crear la orden
+    for (const item of createOrdenDto.items) {
+      const disponibles = await this.itemsRepository.countDisponibles(item.productoSku)
+      if (disponibles < item.cantidad) {
+        throw new ConflictException(
+          `Stock insuficiente para el producto '${item.productoSku}': se requieren ${item.cantidad} pero hay ${disponibles} disponibles`,
+        )
+      }
+    }
+
+    const orden = await this.ordenesRepository.create(
+      {
+        clienteNombre: createOrdenDto.clienteNombre,
+        clienteDireccion: createOrdenDto.clienteDireccion,
+        items: createOrdenDto.items,
+      },
+      async (ordenId, trx) => {
+        for (const item of createOrdenDto.items) {
+          await this.itemsRepository.reservar(item.productoSku, item.cantidad, ordenId, trx)
+        }
+      },
+    )
 
     this.logger.log(`Orden #${orden.id} creada exitosamente con estado ${orden.estado}`)
     return orden
