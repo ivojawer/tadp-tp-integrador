@@ -45,6 +45,7 @@ describe('OrdenesService', () => {
   beforeEach(async () => {
     const mockRepo: jest.Mocked<IOrdenesRepository> = {
       findById: jest.fn(),
+      findAll: jest.fn(),
       create: jest.fn(),
       updateEstado: jest
         .fn()
@@ -70,6 +71,7 @@ describe('OrdenesService', () => {
       prepararPorOrden: jest.fn(),
       entregarPorOrden: jest.fn(),
       findByOrden: jest.fn(),
+      obtenerEstadoItems: jest.fn(),
     }
 
     const module: TestingModule = await Test.createTestingModule({
@@ -365,6 +367,38 @@ describe('OrdenesService', () => {
           nuevoEstado: EstadoOrden.LISTA,
         }),
       ).rejects.toThrow(ConflictException)
+    })
+  })
+
+  describe('findAll', () => {
+    it('sin filtro llama al repository sin parámetros y retorna array', async () => {
+      repository.findAll.mockResolvedValue([mockOrdenBase])
+
+      const result = await service.findAll()
+
+      expect(repository.findAll).toHaveBeenCalledWith()
+      expect(result).toEqual([mockOrdenBase])
+    })
+
+    it('con estado=Lista pasa el filtro al repository', async () => {
+      const mockOrdenLista: Orden = {
+        ...mockOrdenBase,
+        estado: EstadoOrden.LISTA,
+      }
+      repository.findAll.mockResolvedValue([mockOrdenLista])
+
+      const result = await service.findAll({ estado: EstadoOrden.LISTA })
+
+      expect(repository.findAll).toHaveBeenCalledWith({ estado: EstadoOrden.LISTA })
+      expect(result).toEqual([mockOrdenLista])
+    })
+
+    it('retorna array vacío cuando no hay órdenes', async () => {
+      repository.findAll.mockResolvedValue([])
+
+      const result = await service.findAll()
+
+      expect(result).toEqual([])
     })
   })
 })

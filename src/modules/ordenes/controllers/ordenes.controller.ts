@@ -10,9 +10,11 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common'
 import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { CreateOrdenDto } from '../dto/create-orden.dto'
+import { FindOrdenesQueryDto } from '../dto/find-ordenes-query.dto'
 import { UpdateEstadoOrdenDto } from '../dto/update-estado-orden.dto'
 import { Orden } from '../entities/orden.entity'
 import { OrdenesService } from '../services/ordenes.service'
@@ -23,6 +25,27 @@ export class OrdenesController {
   private readonly logger = new Logger(OrdenesController.name)
 
   constructor(private readonly ordenesService: OrdenesService) {}
+
+  @Get()
+  @ApiOperation({ summary: 'Listar órdenes con filtro opcional por estado' })
+  @ApiResponse({
+    status: 200,
+    description: 'Listado de órdenes obtenido exitosamente con sus líneas de pedido',
+    type: [Orden],
+  })
+  @ApiResponse({ status: 400, description: 'Parámetros de consulta inválidos' })
+  async findAll(@Query() query?: FindOrdenesQueryDto): Promise<Orden[]> {
+    try {
+      const filtros = query && Object.keys(query).length > 0 ? query : undefined
+      return await (filtros ? this.ordenesService.findAll(filtros) : this.ordenesService.findAll())
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error
+      }
+      this.logger.error('Error inesperado al listar las órdenes', error)
+      throw new InternalServerErrorException('Error al recuperar el listado de órdenes')
+    }
+  }
 
   @Get(':id')
   @ApiOperation({ summary: 'Obtener detalle de una orden por su identificador' })

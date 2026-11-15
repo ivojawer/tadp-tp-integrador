@@ -41,6 +41,7 @@ describe('OrdenesController', () => {
   beforeEach(async () => {
     service = {
       findById: jest.fn(),
+      findAll: jest.fn(),
       create: jest.fn(),
       cambiarEstado: jest.fn(),
     }
@@ -119,6 +120,30 @@ describe('OrdenesController', () => {
       const result = await controller.create(dto)
       expect(result).toEqual(mockOrden)
       expect(service.create).toHaveBeenCalledWith(dto)
+    })
+  })
+
+  describe('findAll', () => {
+    it('GET /ordenes sin query invoca service.findAll() sin args y retorna 200 con array', async () => {
+      ;(service.findAll as jest.Mock).mockResolvedValue([mockOrden])
+
+      const result = await controller.findAll()
+      expect(result).toEqual([mockOrden])
+      expect(service.findAll).toHaveBeenCalledWith()
+    })
+
+    it('GET /ordenes?estado=Pedida pasa { estado: EstadoOrden.PEDIDA } al service', async () => {
+      ;(service.findAll as jest.Mock).mockResolvedValue([mockOrden])
+
+      const result = await controller.findAll({ estado: EstadoOrden.PEDIDA })
+      expect(result).toEqual([mockOrden])
+      expect(service.findAll).toHaveBeenCalledWith({ estado: EstadoOrden.PEDIDA })
+    })
+
+    it('captura error inesperado en findAll y lanza InternalServerErrorException', async () => {
+      ;(service.findAll as jest.Mock).mockRejectedValue(new Error('DB failure'))
+
+      await expect(controller.findAll()).rejects.toThrow(InternalServerErrorException)
     })
   })
 })

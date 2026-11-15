@@ -387,4 +387,91 @@ describe('OrdenesRepository (Integration with test DB)', () => {
       expect(itemEnDb.estado_fisico).toBe(EstadoFisicoItem.RESERVADO)
     })
   })
+
+  describe('findAll', () => {
+    it('sin filtro retorna todas las órdenes con sus itemsPedidos e items físicos', async () => {
+      const o1 = await repository.create({
+        clienteNombre: 'Cliente Uno',
+        clienteDireccion: 'Direccion 1',
+        items: [{ productoSku: 'PROD-001', cantidad: 1 }],
+      })
+      const o2 = await repository.create({
+        clienteNombre: 'Cliente Dos',
+        clienteDireccion: 'Direccion 2',
+        items: [{ productoSku: 'PROD-002', cantidad: 2 }],
+      })
+
+      await db
+        .insertInto('items')
+        .values([
+          {
+            producto_sku: 'PROD-001',
+            estado_fisico: EstadoFisicoItem.RESERVADO,
+            orden_id: o1.id,
+          },
+          {
+            producto_sku: 'PROD-002',
+            estado_fisico: EstadoFisicoItem.RESERVADO,
+            orden_id: o2.id,
+          },
+        ])
+        .execute()
+
+      const ordenes = await repository.findAll()
+
+      expect(ordenes).toHaveLength(2)
+      expect(ordenes[0].id).toBe(o1.id)
+      expect(ordenes[0].clienteNombre).toBe('Cliente Uno')
+      expect(ordenes[0].itemsPedidos).toHaveLength(1)
+      expect(ordenes[0].itemsPedidos[0].items).toHaveLength(1)
+      expect(ordenes[0].itemsPedidos[0].items[0].productoSku).toBe('PROD-001')
+
+      expect(ordenes[1].id).toBe(o2.id)
+      expect(ordenes[1].clienteNombre).toBe('Cliente Dos')
+      expect(ordenes[1].itemsPedidos).toHaveLength(1)
+      expect(ordenes[1].itemsPedidos[0].items).toHaveLength(1)
+      expect(ordenes[1].itemsPedidos[0].items[0].productoSku).toBe('PROD-002')
+    })
+
+    it('con estado retorna únicamente las órdenes en dicho estado (WHERE estado = X)', async () => {
+      const o1 = await repository.create({
+        clienteNombre: 'Cliente Pedida',
+        clienteDireccion: 'Direccion 1',
+        items: [{ productoSku: 'PROD-001', cantidad: 1 }],
+      })
+      const o2 = await repository.create({
+        clienteNombre: 'Cliente Lista',
+        clienteDireccion: 'Direccion 2',
+        items: [{ productoSku: 'PROD-002', cantidad: 1 }],
+      })
+
+      await repository.updateEstado(o2.id, EstadoOrden.LISTA)
+
+      const ordenesPedidas = await repository.findAll({ estado: EstadoOrden.PEDIDA })
+      expect(ordenesPedidas).toHaveLength(1)
+      expect(ordenesPedidas[0].id).toBe(o1.id)
+      expect(ordenesPedidas[0].estado).toBe(EstadoOrden.PEDIDA)
+
+      const ordenesListas = await repository.findAll({ estado: EstadoOrden.LISTA })
+      expect(ordenesListas).toHaveLength(1)
+      expect(ordenesListas[0].id).toBe(o2.id)
+      expect(ordenesListas[0].estado).toBe(EstadoOrden.LISTA)
+    })
+
+    it('retorna array vacío cuando no hay órdenes que coincidan', async () => {
+      await repository.create({
+        clienteNombre: 'Cliente Pedida',
+        clienteDireccion: 'Direccion 1',
+        items: [{ productoSku: 'PROD-001', cantidad: 1 }],
+      })
+
+      const ordenes = await repository.findAll({ estado: EstadoOrden.COMPLETADA })
+      expect(ordenes).toEqual([])
+    })
+
+    it('retorna array vacío si la base de datos no tiene órdenes', async () => {
+      const ordenes = await repository.findAll()
+      expect(ordenes).toEqual([])
+    })
+  })
 })

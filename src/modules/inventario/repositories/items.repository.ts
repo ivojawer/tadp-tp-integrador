@@ -1,7 +1,8 @@
 import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common'
-import { Kysely, Transaction } from 'kysely'
+import { Kysely, Transaction, sql } from 'kysely'
 import { KYSELY_DB } from '../../../common/database/database.provider'
 import { Database } from '../../../common/database/types'
+import { EstadoItemsDto } from '../dto/estado-items.dto'
 import { EstadoFisicoItem, Item } from '../entities/item.entity'
 
 export interface IItemsRepository {
@@ -23,6 +24,7 @@ export interface IItemsRepository {
   prepararPorOrden(ordenId: number, trx?: Transaction<Database>): Promise<void>
   entregarPorOrden(ordenId: number, trx?: Transaction<Database>): Promise<void>
   findByOrden(ordenId: number): Promise<Item[]>
+  obtenerEstadoItems(): Promise<EstadoItemsDto[]>
 }
 
 export const ITEMS_REPOSITORY = 'ITEMS_REPOSITORY'
@@ -124,6 +126,29 @@ export class ItemsRepository implements IItemsRepository {
       .execute()
 
     return rows.map((row) => this.mapToEntity(row))
+  }
+
+  async obtenerEstadoItems(): Promise<EstadoItemsDto[]> {
+    const rows = await this.db
+      .selectFrom('items')
+      .select([
+        'producto_sku as sku',
+        sql<number>`count(case when estado_fisico = ${EstadoFisicoItem.DISPONIBLE} then 1 end)::int`.as(
+          'disponibles',
+        ),
+        sql<number>`count(case when estado_fisico = ${EstadoFisicoItem.RESERVADO} then 1 end)::int`.as(
+          'reservados',
+        ),
+      ])
+      .groupBy('producto_sku')
+      .orderBy('producto_sku', 'asc')
+      .execute()
+
+    return rows.map((row) => ({
+      sku: row.sku,
+      disponibles: Number(row.disponibles),
+      reservados: Number(row.reservados),
+    }))
   }
 
   private mapToEntity(row: {

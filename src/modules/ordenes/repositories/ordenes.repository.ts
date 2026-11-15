@@ -7,6 +7,7 @@ import { EstadoOrden, ItemPedido, Orden } from '../entities/orden.entity'
 
 export interface IOrdenesRepository {
   findById(id: number, trx?: Transaction<Database>): Promise<Orden | null>
+  findAll(filtros?: { estado?: EstadoOrden }, trx?: Transaction<Database>): Promise<Orden[]>
   create(
     data: {
       clienteNombre: string
@@ -97,6 +98,69 @@ export class OrdenesRepository implements IOrdenesRepository {
       vehiculoId: firstRow.vehiculo_id,
       itemsPedidos,
     }
+  }
+
+  async findAll(filtros?: { estado?: EstadoOrden }, trx?: Transaction<Database>): Promise<Orden[]> {
+    const executor = trx ?? this.db
+
+    let query = executor.selectFrom('ordenes').selectAll().orderBy('id', 'asc')
+
+    if (filtros?.estado) {
+      query = query.where('estado', '=', filtros.estado)
+    }
+
+    const ordenesRows = await query.execute()
+
+    if (ordenesRows.length === 0) {
+      return []
+    }
+
+    const ordenIds = ordenesRows.map((o) => o.id)
+
+    const itemsPedidosRows = await executor
+      .selectFrom('items_pedidos')
+      .selectAll()
+      .where('orden_id', 'in', ordenIds)
+      .execute()
+
+    const itemsFisicosRows = await executor
+      .selectFrom('items')
+      .selectAll()
+      .where('orden_id', 'in', ordenIds)
+      .execute()
+
+    return ordenesRows.map((orden) => {
+      const itemsPedidosDeOrden = itemsPedidosRows
+        .filter((ip) => ip.orden_id === orden.id)
+        .map((ip) => {
+          const itemsAsignados = itemsFisicosRows
+            .filter((item) => item.orden_id === orden.id && item.producto_sku === ip.producto_sku)
+            .map((item) => ({
+              id: item.id,
+              productoSku: item.producto_sku,
+              estadoFisico: item.estado_fisico as EstadoFisicoItem,
+              ordenId: item.orden_id,
+            }))
+
+          return {
+            id: ip.id,
+            productoSku: ip.producto_sku,
+            cantidad: ip.cantidad,
+            items: itemsAsignados,
+          }
+        })
+
+      return {
+        id: orden.id,
+        clienteNombre: orden.cliente_nombre,
+        clienteDireccion: orden.cliente_direccion,
+        estado: orden.estado as EstadoOrden,
+        fechaCompletada: orden.fecha_completada,
+        repartidorLegajo: orden.repartidor_legajo,
+        vehiculoId: orden.vehiculo_id,
+        itemsPedidos: itemsPedidosDeOrden,
+      }
+    })
   }
 
   async create(

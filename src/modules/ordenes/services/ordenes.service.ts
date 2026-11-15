@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common'
 import { IItemsRepository, ITEMS_REPOSITORY } from '../../inventario/repositories/items.repository'
 import { CreateOrdenDto } from '../dto/create-orden.dto'
+import { FindOrdenesQueryDto } from '../dto/find-ordenes-query.dto'
 import { UpdateEstadoOrdenDto } from '../dto/update-estado-orden.dto'
 import { EstadoOrden, Orden } from '../entities/orden.entity'
 import { IOrdenesRepository, ORDENES_REPOSITORY } from '../repositories/ordenes.repository'
@@ -29,6 +30,15 @@ export class OrdenesService {
       throw new NotFoundException(`La orden con id ${id} no fue encontrada`)
     }
     return orden
+  }
+
+  async findAll(filtros?: FindOrdenesQueryDto): Promise<Orden[]> {
+    this.logger.log(
+      `Listando órdenes${filtros?.estado ? ` con filtro estado=${filtros.estado}` : ''}`,
+    )
+    return await (filtros && Object.keys(filtros).length > 0
+      ? this.ordenesRepository.findAll(filtros)
+      : this.ordenesRepository.findAll())
   }
 
   async create(createOrdenDto: CreateOrdenDto): Promise<Orden> {

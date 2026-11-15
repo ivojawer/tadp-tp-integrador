@@ -374,4 +374,77 @@ describe('ItemsRepository (Integration with test DB)', () => {
       expect(result).toEqual([])
     })
   })
+
+  describe('obtenerEstadoItems', () => {
+    it('retorna lista vacía cuando no hay items en el warehouse', async () => {
+      const result = await repository.obtenerEstadoItems()
+      expect(result).toEqual([])
+    })
+
+    it('retorna lista agrupada con disponibles y reservados por SKU', async () => {
+      await db
+        .insertInto('items')
+        .values([
+          // PROD-001: 2 disponibles, 1 reservado, 1 preparado
+          {
+            producto_sku: 'PROD-001',
+            estado_fisico: EstadoFisicoItem.DISPONIBLE,
+            orden_id: null,
+          },
+          {
+            producto_sku: 'PROD-001',
+            estado_fisico: EstadoFisicoItem.DISPONIBLE,
+            orden_id: null,
+          },
+          {
+            producto_sku: 'PROD-001',
+            estado_fisico: EstadoFisicoItem.RESERVADO,
+            orden_id: testOrdenId,
+          },
+          {
+            producto_sku: 'PROD-001',
+            estado_fisico: EstadoFisicoItem.PREPARADO,
+            orden_id: testOrdenId,
+          },
+          // PROD-002: 1 disponible, 0 reservados
+          {
+            producto_sku: 'PROD-002',
+            estado_fisico: EstadoFisicoItem.DISPONIBLE,
+            orden_id: null,
+          },
+          // PROD-003: 0 disponibles, 2 reservados
+          {
+            producto_sku: 'PROD-003',
+            estado_fisico: EstadoFisicoItem.RESERVADO,
+            orden_id: testOrdenId,
+          },
+          {
+            producto_sku: 'PROD-003',
+            estado_fisico: EstadoFisicoItem.RESERVADO,
+            orden_id: testOrden2Id,
+          },
+        ])
+        .execute()
+
+      const result = await repository.obtenerEstadoItems()
+
+      expect(result).toEqual([
+        {
+          sku: 'PROD-001',
+          disponibles: 2,
+          reservados: 1,
+        },
+        {
+          sku: 'PROD-002',
+          disponibles: 1,
+          reservados: 0,
+        },
+        {
+          sku: 'PROD-003',
+          disponibles: 0,
+          reservados: 2,
+        },
+      ])
+    })
+  })
 })
