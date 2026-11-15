@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { IItemsRepository, ITEMS_REPOSITORY } from '../../inventario/repositories/items.repository'
+import { VehiculosService } from '../../vehiculos/services/vehiculos.service'
 import { CreateOrdenDto } from '../dto/create-orden.dto'
 import { FindOrdenesQueryDto } from '../dto/find-ordenes-query.dto'
 import { UpdateEstadoOrdenDto } from '../dto/update-estado-orden.dto'
@@ -22,6 +23,7 @@ export class OrdenesService {
     private readonly ordenesRepository: IOrdenesRepository,
     @Inject(ITEMS_REPOSITORY)
     private readonly itemsRepository: IItemsRepository,
+    private readonly vehiculosService: VehiculosService,
   ) {}
 
   async findById(id: number): Promise<Orden> {
@@ -74,6 +76,14 @@ export class OrdenesService {
   async cambiarEstado(id: number, updateDto: UpdateEstadoOrdenDto): Promise<Orden> {
     const ordenActual = await this.findById(id)
     this.validarTransicionEstado(ordenActual, updateDto)
+
+    if (
+      ordenActual.estado === EstadoOrden.LISTA &&
+      updateDto.nuevoEstado === EstadoOrden.ENVIADA &&
+      updateDto.vehiculoId
+    ) {
+      await this.vehiculosService.findById(updateDto.vehiculoId)
+    }
 
     const options = {
       repartidorLegajo: updateDto.repartidorLegajo ?? ordenActual.repartidorLegajo ?? undefined,

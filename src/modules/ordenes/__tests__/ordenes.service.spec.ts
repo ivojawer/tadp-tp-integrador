@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { Test, TestingModule } from '@nestjs/testing'
 import { IItemsRepository, ITEMS_REPOSITORY } from '../../inventario/repositories/items.repository'
 import { EstadoFisicoItem } from '../../inventario/entities/item.entity'
+import { VehiculosService } from '../../vehiculos/services/vehiculos.service'
 import { EstadoOrden, Orden } from '../entities/orden.entity'
 import { IOrdenesRepository, ORDENES_REPOSITORY } from '../repositories/ordenes.repository'
 import { OrdenesService } from '../services/ordenes.service'
@@ -10,6 +11,7 @@ describe('OrdenesService', () => {
   let service: OrdenesService
   let repository: jest.Mocked<IOrdenesRepository>
   let itemsRepository: jest.Mocked<IItemsRepository>
+  let vehiculosService: jest.Mocked<Pick<VehiculosService, 'findById'>>
 
   const mockOrdenBase: Orden = {
     id: 1,
@@ -74,6 +76,10 @@ describe('OrdenesService', () => {
       obtenerEstadoItems: jest.fn(),
     }
 
+    const mockVehiculosService = {
+      findById: jest.fn(),
+    }
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         OrdenesService,
@@ -85,12 +91,17 @@ describe('OrdenesService', () => {
           provide: ITEMS_REPOSITORY,
           useValue: mockItemsRepo,
         },
+        {
+          provide: VehiculosService,
+          useValue: mockVehiculosService,
+        },
       ],
     }).compile()
 
     service = module.get<OrdenesService>(OrdenesService)
     repository = module.get(ORDENES_REPOSITORY)
     itemsRepository = module.get(ITEMS_REPOSITORY)
+    vehiculosService = module.get(VehiculosService)
   })
 
   it('debe estar definido el servicio', () => {
@@ -367,6 +378,68 @@ describe('OrdenesService', () => {
           nuevoEstado: EstadoOrden.LISTA,
         }),
       ).rejects.toThrow(ConflictException)
+    })
+
+    // --- T6 tests ---
+
+    it('cambiarEstado Lista → Enviada con vehiculoId válido → llama vehiculosService.findById, actualiza estado', async () => {
+      const ordenLista: Orden = {
+        ...mockOrdenBase,
+        estado: EstadoOrden.LISTA,
+      }
+      repository.findById.mockResolvedValue(ordenLista)
+      vehiculosService.findById.mockResolvedValue({
+        id: 10,
+        modelo: 'Fiat Ducato',
+        capacidadVolumen: 10,
+        capacidadPeso: 500,
+      } as any)
+
+      const result = await service.cambiarEstado(1, {
+        nuevoEstado: EstadoOrden.ENVIADA,
+        repartidorLegajo: 'REP-01',
+        vehiculoId: 10,
+      })
+
+      expect(vehiculosService.findById).toHaveBeenCalledWith(10)
+      expect(result.estado).toBe(EstadoOrden.ENVIADA)
+    })
+
+    it('cambiarEstado Lista → Enviada sin vehiculoId → lanza BadRequestException', async () => {
+      repository.findById.mockResolvedValue({
+        ...mockOrdenBase,
+        estado: EstadoOrden.LISTA,
+      })
+
+      await expect(
+        service.cambiarEstado(1, {
+          nuevoEstado: EstadoOrden.ENVIADA,
+          repartidorLegajo: 'REP-01',
+        }),
+      ).rejects.toThrow(BadRequestException)
+
+      expect(vehiculosService.findById).not.toHaveBeenCalled()
+    })
+
+    it('cambiarEstado Lista → Enviada con vehiculoId inexistente → lanza NotFoundException', async () => {
+      const ordenLista: Orden = {
+        ...mockOrdenBase,
+        estado: EstadoOrden.LISTA,
+      }
+      repository.findById.mockResolvedValue(ordenLista)
+      vehiculosService.findById.mockRejectedValue(
+        new NotFoundException('El vehículo con id 999 no fue encontrado'),
+      )
+
+      await expect(
+        service.cambiarEstado(1, {
+          nuevoEstado: EstadoOrden.ENVIADA,
+          repartidorLegajo: 'REP-01',
+          vehiculoId: 999,
+        }),
+      ).rejects.toThrow(NotFoundException)
+
+      expect(vehiculosService.findById).toHaveBeenCalledWith(999)
     })
   })
 
