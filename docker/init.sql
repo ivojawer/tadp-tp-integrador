@@ -1,5 +1,13 @@
 -- DDL para el esquema logístico
 
+-- Eliminar y re-crear el esquema public para asegurar que se borren todos los datos y objetos existentes
+DROP SCHEMA IF EXISTS public CASCADE;
+CREATE SCHEMA public;
+
+GRANT ALL ON SCHEMA public TO postgres;
+GRANT ALL ON SCHEMA public TO public;
+COMMENT ON SCHEMA public IS 'standard public schema';
+
 CREATE TABLE IF NOT EXISTS usuarios (
   legajo VARCHAR(50) PRIMARY KEY,
   nombre VARCHAR(255) NOT NULL,
@@ -80,3 +88,19 @@ VALUES
   ('PROD-002', 'Taladro Percutor Inalámbrico', 'Taladro 18V con dos baterías', 'Bosch'),
   ('PROD-003', 'Amoladora Angular 820W', 'Amoladora para corte y desbaste', 'DeWalt')
 ON CONFLICT (sku) DO NOTHING;
+
+INSERT INTO items (producto_sku, estado_fisico, orden_id)
+VALUES 
+  ('PROD-001', 'Disponible', NULL),
+  ('PROD-001', 'Disponible', NULL),
+  ('PROD-001', 'Disponible', NULL),
+  ('PROD-001', 'Disponible', NULL),
+  ('PROD-001', 'Disponible', NULL),
+  ('PROD-002', 'Disponible', NULL),
+  ('PROD-002', 'Disponible', NULL),
+  ('PROD-002', 'Disponible', NULL),
+  ('PROD-002', 'Disponible', NULL),
+  ('PROD-002', 'Disponible', NULL),
+  ('PROD-003', 'Disponible', NULL),
+  ('PROD-003', 'Disponible', NULL),
+  ('PROD-003', 'Disponible', NULL);
