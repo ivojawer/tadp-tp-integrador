@@ -1,12 +1,15 @@
+version: '3.8'
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: logistica_postgres
     restart: always
+    env_file: .env
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: logistica_db
+      POSTGRES_USER: ${DATABASE_USER}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME}
     ports:
       - "5432:5432"
     volumes:
@@ -14,7 +17,7 @@ services:
       - ./docker/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
       - ./docker/init-test-db.sh:/docker-entrypoint-initdb.d/02-init-test-db.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d logistica_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER} -d ${DATABASE_NAME}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -25,16 +28,17 @@ services:
       dockerfile: Dockerfile
     container_name: logistica_backend
     restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      PORT: ${PORT}
+      DATABASE_HOST: ${DATABASE_HOST}
+      DATABASE_PORT: ${DATABASE_PORT}
+      DATABASE_USER: ${DATABASE_USER}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD}
+      DATABASE_NAME: ${DATABASE_NAME}
     ports:
       - "3000:3000"
-    environment:
-      NODE_ENV: production
-      PORT: 3000
-      DATABASE_HOST: postgres
-      DATABASE_PORT: 5432
-      DATABASE_USER: postgres
-      DATABASE_PASSWORD: postgres
-      DATABASE_NAME: logistica_db
     depends_on:
       postgres:
         condition: service_healthy
