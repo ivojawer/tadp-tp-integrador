@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing'
+import { PaginatedResponseDto } from '../../../common/dto/paginated-response.dto'
 import { EstadoItemsDto } from '../dto/estado-items.dto'
 import { IItemsRepository, ITEMS_REPOSITORY } from '../repositories/items.repository'
 import { InventarioService } from '../services/inventario.service'
@@ -19,6 +20,13 @@ describe('InventarioService', () => {
       reservados: 0,
     },
   ]
+
+  const mockPaginatedResponse: PaginatedResponseDto<EstadoItemsDto> = {
+    data: mockEstadoItems,
+    offset: 0,
+    pageSize: 10,
+    hasNextPage: false,
+  }
 
   beforeEach(async () => {
     const mockRepo: jest.Mocked<IItemsRepository> = {
@@ -50,21 +58,46 @@ describe('InventarioService', () => {
   })
 
   describe('obtenerEstadoItems', () => {
-    it('debe invocar al repositorio y retornar la lista de estado de items', async () => {
-      repository.obtenerEstadoItems.mockResolvedValue(mockEstadoItems)
+    it('debe invocar al repositorio y retornar la respuesta paginada', async () => {
+      repository.obtenerEstadoItems.mockResolvedValue(mockPaginatedResponse)
 
       const result = await service.obtenerEstadoItems()
 
-      expect(result).toEqual(mockEstadoItems)
+      expect(result).toEqual(mockPaginatedResponse)
+      expect(result.data).toEqual(mockEstadoItems)
       expect(repository.obtenerEstadoItems).toHaveBeenCalledTimes(1)
     })
 
-    it('debe retornar lista vacía si el repositorio no encuentra items', async () => {
-      repository.obtenerEstadoItems.mockResolvedValue([])
+    it('debe invocar al repositorio pasando opciones de paginación', async () => {
+      const customResponse: PaginatedResponseDto<EstadoItemsDto> = {
+        data: [mockEstadoItems[0]],
+        offset: 0,
+        pageSize: 1,
+        hasNextPage: true,
+      }
+      repository.obtenerEstadoItems.mockResolvedValue(customResponse)
+
+      const pagination = { pageSize: 1, offset: 0 }
+      const result = await service.obtenerEstadoItems(pagination)
+
+      expect(result).toEqual(customResponse)
+      expect(result.hasNextPage).toBe(true)
+      expect(repository.obtenerEstadoItems).toHaveBeenCalledWith(pagination)
+    })
+
+    it('debe retornar lista vacía en data si el repositorio no encuentra items', async () => {
+      const emptyResponse: PaginatedResponseDto<EstadoItemsDto> = {
+        data: [],
+        offset: 0,
+        pageSize: 10,
+        hasNextPage: false,
+      }
+      repository.obtenerEstadoItems.mockResolvedValue(emptyResponse)
 
       const result = await service.obtenerEstadoItems()
 
-      expect(result).toEqual([])
+      expect(result).toEqual(emptyResponse)
+      expect(result.data).toEqual([])
       expect(repository.obtenerEstadoItems).toHaveBeenCalledTimes(1)
     })
   })

@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
+import { PaginatedResponseDto } from '../../../common/dto/paginated-response.dto'
 import { IItemsRepository, ITEMS_REPOSITORY } from '../../inventario/repositories/items.repository'
 import { EstadoFisicoItem } from '../../inventario/entities/item.entity'
 import { VehiculosService } from '../../vehiculos/services/vehiculos.service'
@@ -444,13 +445,20 @@ describe('OrdenesService', () => {
   })
 
   describe('findAll', () => {
-    it('sin filtro llama al repository sin parámetros y retorna array', async () => {
-      repository.findAll.mockResolvedValue([mockOrdenBase])
+    const mockPaginated: PaginatedResponseDto<Orden> = {
+      data: [mockOrdenBase],
+      offset: 0,
+      pageSize: 10,
+      hasNextPage: false,
+    }
+
+    it('sin filtro llama al repository y retorna respuesta paginada', async () => {
+      repository.findAll.mockResolvedValue(mockPaginated)
 
       const result = await service.findAll()
 
-      expect(repository.findAll).toHaveBeenCalledWith()
-      expect(result).toEqual([mockOrdenBase])
+      expect(repository.findAll).toHaveBeenCalledWith(undefined)
+      expect(result).toEqual(mockPaginated)
     })
 
     it('con estado=Lista pasa el filtro al repository', async () => {
@@ -458,20 +466,60 @@ describe('OrdenesService', () => {
         ...mockOrdenBase,
         estado: EstadoOrden.LISTA,
       }
-      repository.findAll.mockResolvedValue([mockOrdenLista])
+      const mockPaginatedLista: PaginatedResponseDto<Orden> = {
+        data: [mockOrdenLista],
+        offset: 0,
+        pageSize: 10,
+        hasNextPage: false,
+      }
+      repository.findAll.mockResolvedValue(mockPaginatedLista)
 
       const result = await service.findAll({ estado: EstadoOrden.LISTA })
 
       expect(repository.findAll).toHaveBeenCalledWith({ estado: EstadoOrden.LISTA })
-      expect(result).toEqual([mockOrdenLista])
+      expect(result).toEqual(mockPaginatedLista)
     })
 
-    it('retorna array vacío cuando no hay órdenes', async () => {
-      repository.findAll.mockResolvedValue([])
+    it('con paginación pageSize y offset pasa los parámetros al repository', async () => {
+      const mockPaginatedCustom: PaginatedResponseDto<Orden> = {
+        data: [mockOrdenBase],
+        offset: 10,
+        pageSize: 5,
+        hasNextPage: true,
+      }
+      repository.findAll.mockResolvedValue(mockPaginatedCustom)
+
+      const filtros = { pageSize: 5, offset: 10 }
+      const result = await service.findAll(filtros)
+
+      expect(repository.findAll).toHaveBeenCalledWith(filtros)
+      expect(result).toEqual(mockPaginatedCustom)
+      expect(result.hasNextPage).toBe(true)
+    })
+
+    it('con estado y paginación combina todos los filtros hacia el repository', async () => {
+      repository.findAll.mockResolvedValue(mockPaginated)
+
+      const filtros = { estado: EstadoOrden.PEDIDA, pageSize: 2, offset: 4 }
+      const result = await service.findAll(filtros)
+
+      expect(repository.findAll).toHaveBeenCalledWith(filtros)
+      expect(result).toEqual(mockPaginated)
+    })
+
+    it('retorna data vacía cuando no hay órdenes', async () => {
+      const mockEmpty: PaginatedResponseDto<Orden> = {
+        data: [],
+        offset: 0,
+        pageSize: 10,
+        hasNextPage: false,
+      }
+      repository.findAll.mockResolvedValue(mockEmpty)
 
       const result = await service.findAll()
 
-      expect(result).toEqual([])
+      expect(result).toEqual(mockEmpty)
+      expect(result.data).toEqual([])
     })
   })
 })

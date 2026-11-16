@@ -1,8 +1,9 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
 import { IsEnum, IsOptional } from 'class-validator'
+import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto'
 import { EstadoOrden } from '../entities/orden.entity'
 
-export class FindOrdenesQueryDto {
+export class FindOrdenesQueryDto extends PaginationQueryDto {
   @ApiPropertyOptional({
     enum: EstadoOrden,
     example: EstadoOrden.PEDIDA,

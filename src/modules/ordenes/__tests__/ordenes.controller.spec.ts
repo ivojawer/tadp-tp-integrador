@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { Test, TestingModule } from '@nestjs/testing'
+import { PaginatedResponseDto } from '../../../common/dto/paginated-response.dto'
 import { EstadoFisicoItem } from '../../inventario/entities/item.entity'
 import { OrdenesController } from '../controllers/ordenes.controller'
 import { EstadoOrden, Orden } from '../entities/orden.entity'
@@ -36,6 +37,13 @@ describe('OrdenesController', () => {
         ],
       },
     ],
+  }
+
+  const mockPaginatedOrdenes: PaginatedResponseDto<Orden> = {
+    data: [mockOrden],
+    offset: 0,
+    pageSize: 10,
+    hasNextPage: false,
   }
 
   beforeEach(async () => {
@@ -124,20 +132,43 @@ describe('OrdenesController', () => {
   })
 
   describe('findAll', () => {
-    it('GET /ordenes sin query invoca service.findAll() sin args y retorna 200 con array', async () => {
-      ;(service.findAll as jest.Mock).mockResolvedValue([mockOrden])
+    it('GET /ordenes sin query invoca service.findAll() y retorna 200 con respuesta paginada', async () => {
+      ;(service.findAll as jest.Mock).mockResolvedValue(mockPaginatedOrdenes)
 
       const result = await controller.findAll()
-      expect(result).toEqual([mockOrden])
-      expect(service.findAll).toHaveBeenCalledWith()
+      expect(result).toEqual(mockPaginatedOrdenes)
+      expect(result.data).toEqual([mockOrden])
+      expect(result.offset).toBe(0)
+      expect(result.pageSize).toBe(10)
+      expect(result.hasNextPage).toBe(false)
+      expect(service.findAll).toHaveBeenCalledWith(undefined)
     })
 
     it('GET /ordenes?estado=Pedida pasa { estado: EstadoOrden.PEDIDA } al service', async () => {
-      ;(service.findAll as jest.Mock).mockResolvedValue([mockOrden])
+      ;(service.findAll as jest.Mock).mockResolvedValue(mockPaginatedOrdenes)
 
-      const result = await controller.findAll({ estado: EstadoOrden.PEDIDA })
-      expect(result).toEqual([mockOrden])
-      expect(service.findAll).toHaveBeenCalledWith({ estado: EstadoOrden.PEDIDA })
+      const query = { estado: EstadoOrden.PEDIDA }
+      const result = await controller.findAll(query)
+      expect(result).toEqual(mockPaginatedOrdenes)
+      expect(service.findAll).toHaveBeenCalledWith(query)
+    })
+
+    it('GET /ordenes?pageSize=5&offset=10 pasa parámetros de paginación al service', async () => {
+      ;(service.findAll as jest.Mock).mockResolvedValue(mockPaginatedOrdenes)
+
+      const query = { pageSize: 5, offset: 10 }
+      const result = await controller.findAll(query)
+      expect(result).toEqual(mockPaginatedOrdenes)
+      expect(service.findAll).toHaveBeenCalledWith(query)
+    })
+
+    it('GET /ordenes con estado y paginación combina todos los filtros hacia el service', async () => {
+      ;(service.findAll as jest.Mock).mockResolvedValue(mockPaginatedOrdenes)
+
+      const filtros = { estado: EstadoOrden.PEDIDA, pageSize: 2, offset: 4 }
+      const result = await controller.findAll(filtros)
+      expect(result).toEqual(mockPaginatedOrdenes)
+      expect(service.findAll).toHaveBeenCalledWith(filtros)
     })
 
     it('captura error inesperado en findAll y lanza InternalServerErrorException', async () => {

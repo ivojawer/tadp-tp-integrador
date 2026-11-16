@@ -2,6 +2,7 @@ import { Inject, Injectable, UnprocessableEntityException } from '@nestjs/common
 import { Kysely, Transaction, sql } from 'kysely'
 import { KYSELY_DB } from '../../../common/database/database.provider'
 import { Database } from '../../../common/database/types'
+import { PaginatedResponseDto } from '../../../common/dto/paginated-response.dto'
 import { EstadoItemsDto } from '../dto/estado-items.dto'
 import { EstadoFisicoItem, Item } from '../entities/item.entity'
 
@@ -24,7 +25,10 @@ export interface IItemsRepository {
   prepararPorOrden(ordenId: number, trx?: Transaction<Database>): Promise<void>
   entregarPorOrden(ordenId: number, trx?: Transaction<Database>): Promise<void>
   findByOrden(ordenId: number): Promise<Item[]>
-  obtenerEstadoItems(): Promise<EstadoItemsDto[]>
+  obtenerEstadoItems(pagination?: {
+    pageSize?: number
+    offset?: number
+  }): Promise<PaginatedResponseDto<EstadoItemsDto>>
 }
 
 export const ITEMS_REPOSITORY = 'ITEMS_REPOSITORY'
@@ -128,8 +132,14 @@ export class ItemsRepository implements IItemsRepository {
     return rows.map((row) => this.mapToEntity(row))
   }
 
-  async obtenerEstadoItems(): Promise<EstadoItemsDto[]> {
-    const rows = await this.db
+  async obtenerEstadoItems(pagination?: {
+    pageSize?: number
+    offset?: number
+  }): Promise<PaginatedResponseDto<EstadoItemsDto>> {
+    const pageSize = pagination?.pageSize ?? 10
+    const offset = pagination?.offset ?? 0
+
+    const query = this.db
       .selectFrom('items')
       .select([
         'producto_sku as sku',
@@ -142,13 +152,24 @@ export class ItemsRepository implements IItemsRepository {
       ])
       .groupBy('producto_sku')
       .orderBy('producto_sku', 'asc')
-      .execute()
+      .offset(offset)
+      .limit(pageSize + 1)
 
-    return rows.map((row) => ({
-      sku: row.sku,
-      disponibles: Number(row.disponibles),
-      reservados: Number(row.reservados),
-    }))
+    const rows = await query.execute()
+
+    const hasNextPage = rows.length > pageSize
+    const pagedRows = hasNextPage ? rows.slice(0, pageSize) : rows
+
+    return {
+      data: pagedRows.map((row) => ({
+        sku: row.sku,
+        disponibles: Number(row.disponibles),
+        reservados: Number(row.reservados),
+      })),
+      offset,
+      pageSize,
+      hasNextPage,
+    }
   }
 
   private mapToEntity(row: {

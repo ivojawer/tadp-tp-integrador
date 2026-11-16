@@ -353,9 +353,12 @@ describe('Ordenes (e2e)', () => {
 
       const response = await request(app.getHttpServer()).get('/ordenes').expect(200)
 
-      expect(Array.isArray(response.body)).toBe(true)
-      expect(response.body.length).toBeGreaterThanOrEqual(2)
-      const ids = response.body.map((o: any) => o.id)
+      expect(Array.isArray(response.body.data)).toBe(true)
+      expect(response.body.offset).toBe(0)
+      expect(response.body.pageSize).toBe(10)
+      expect(response.body.hasNextPage).toBeDefined()
+      expect(response.body.data.length).toBeGreaterThanOrEqual(2)
+      const ids = response.body.data.map((o: any) => o.id)
       expect(ids).toContain(orden1.id)
       expect(ids).toContain(orden2.id)
     })
@@ -388,9 +391,76 @@ describe('Ordenes (e2e)', () => {
         .query({ estado: EstadoOrden.PEDIDA })
         .expect(200)
 
-      expect(Array.isArray(response.body)).toBe(true)
-      expect(response.body.length).toBeGreaterThan(0)
-      expect(response.body.every((o: any) => o.estado === EstadoOrden.PEDIDA)).toBe(true)
+      expect(Array.isArray(response.body.data)).toBe(true)
+      expect(response.body.offset).toBe(0)
+      expect(response.body.pageSize).toBe(10)
+      expect(response.body.hasNextPage).toBeDefined()
+      expect(response.body.data.length).toBeGreaterThan(0)
+      expect(response.body.data.every((o: any) => o.estado === EstadoOrden.PEDIDA)).toBe(true)
+    })
+
+    it('GET /ordenes con paginación (pageSize y offset) debe limitar, desplazar y calcular hasNextPage', async () => {
+      await db
+        .insertInto('ordenes')
+        .values([
+          {
+            cliente_nombre: 'Orden Paginada 1',
+            cliente_direccion: 'Dirección P1',
+            estado: EstadoOrden.PEDIDA,
+            fecha_completada: null,
+            repartidor_legajo: null,
+            vehiculo_id: null,
+          },
+          {
+            cliente_nombre: 'Orden Paginada 2',
+            cliente_direccion: 'Dirección P2',
+            estado: EstadoOrden.PEDIDA,
+            fecha_completada: null,
+            repartidor_legajo: null,
+            vehiculo_id: null,
+          },
+          {
+            cliente_nombre: 'Orden Paginada 3',
+            cliente_direccion: 'Dirección P3',
+            estado: EstadoOrden.PEDIDA,
+            fecha_completada: null,
+            repartidor_legajo: null,
+            vehiculo_id: null,
+          },
+        ])
+        .execute()
+
+      const response = await request(app.getHttpServer())
+        .get('/ordenes')
+        .query({ pageSize: 2, offset: 0 })
+        .expect(200)
+
+      expect(Array.isArray(response.body.data)).toBe(true)
+      expect(response.body.data.length).toBe(2)
+      expect(response.body.offset).toBe(0)
+      expect(response.body.pageSize).toBe(2)
+      expect(response.body.hasNextPage).toBe(true)
+    })
+
+    it('GET /ordenes con pageSize inválido debe retornar 400 Bad Request', async () => {
+      await request(app.getHttpServer()).get('/ordenes').query({ pageSize: 0 }).expect(400)
+    })
+
+    it('GET /items con paginación (pageSize y offset) debe paginar el listado de items por SKU con metadatos', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/items')
+        .query({ pageSize: 1, offset: 0 })
+        .expect(200)
+
+      expect(Array.isArray(response.body.data)).toBe(true)
+      expect(response.body.data.length).toBeLessThanOrEqual(1)
+      expect(response.body.offset).toBe(0)
+      expect(response.body.pageSize).toBe(1)
+      expect(typeof response.body.hasNextPage).toBe('boolean')
+    })
+
+    it('GET /items con offset inválido debe retornar 400 Bad Request', async () => {
+      await request(app.getHttpServer()).get('/items').query({ offset: -1 }).expect(400)
     })
   })
 

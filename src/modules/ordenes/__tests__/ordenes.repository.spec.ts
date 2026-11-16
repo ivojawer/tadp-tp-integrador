@@ -417,20 +417,23 @@ describe('OrdenesRepository (Integration with test DB)', () => {
         ])
         .execute()
 
-      const ordenes = await repository.findAll()
+      const result = await repository.findAll()
 
-      expect(ordenes).toHaveLength(2)
-      expect(ordenes[0].id).toBe(o1.id)
-      expect(ordenes[0].clienteNombre).toBe('Cliente Uno')
-      expect(ordenes[0].itemsPedidos).toHaveLength(1)
-      expect(ordenes[0].itemsPedidos[0].items).toHaveLength(1)
-      expect(ordenes[0].itemsPedidos[0].items[0].productoSku).toBe('PROD-001')
+      expect(result.data).toHaveLength(2)
+      expect(result.offset).toBe(0)
+      expect(result.pageSize).toBe(10)
+      expect(result.hasNextPage).toBe(false)
+      expect(result.data[0].id).toBe(o1.id)
+      expect(result.data[0].clienteNombre).toBe('Cliente Uno')
+      expect(result.data[0].itemsPedidos).toHaveLength(1)
+      expect(result.data[0].itemsPedidos[0].items).toHaveLength(1)
+      expect(result.data[0].itemsPedidos[0].items[0].productoSku).toBe('PROD-001')
 
-      expect(ordenes[1].id).toBe(o2.id)
-      expect(ordenes[1].clienteNombre).toBe('Cliente Dos')
-      expect(ordenes[1].itemsPedidos).toHaveLength(1)
-      expect(ordenes[1].itemsPedidos[0].items).toHaveLength(1)
-      expect(ordenes[1].itemsPedidos[0].items[0].productoSku).toBe('PROD-002')
+      expect(result.data[1].id).toBe(o2.id)
+      expect(result.data[1].clienteNombre).toBe('Cliente Dos')
+      expect(result.data[1].itemsPedidos).toHaveLength(1)
+      expect(result.data[1].itemsPedidos[0].items).toHaveLength(1)
+      expect(result.data[1].itemsPedidos[0].items[0].productoSku).toBe('PROD-002')
     })
 
     it('con estado retorna únicamente las órdenes en dicho estado (WHERE estado = X)', async () => {
@@ -448,17 +451,52 @@ describe('OrdenesRepository (Integration with test DB)', () => {
       await repository.updateEstado(o2.id, EstadoOrden.LISTA)
 
       const ordenesPedidas = await repository.findAll({ estado: EstadoOrden.PEDIDA })
-      expect(ordenesPedidas).toHaveLength(1)
-      expect(ordenesPedidas[0].id).toBe(o1.id)
-      expect(ordenesPedidas[0].estado).toBe(EstadoOrden.PEDIDA)
+      expect(ordenesPedidas.data).toHaveLength(1)
+      expect(ordenesPedidas.data[0].id).toBe(o1.id)
+      expect(ordenesPedidas.data[0].estado).toBe(EstadoOrden.PEDIDA)
+      expect(ordenesPedidas.hasNextPage).toBe(false)
 
       const ordenesListas = await repository.findAll({ estado: EstadoOrden.LISTA })
-      expect(ordenesListas).toHaveLength(1)
-      expect(ordenesListas[0].id).toBe(o2.id)
-      expect(ordenesListas[0].estado).toBe(EstadoOrden.LISTA)
+      expect(ordenesListas.data).toHaveLength(1)
+      expect(ordenesListas.data[0].id).toBe(o2.id)
+      expect(ordenesListas.data[0].estado).toBe(EstadoOrden.LISTA)
+      expect(ordenesListas.hasNextPage).toBe(false)
     })
 
-    it('retorna array vacío cuando no hay órdenes que coincidan', async () => {
+    it('retorna resultados paginados usando pageSize y offset, calculando hasNextPage', async () => {
+      const o1 = await repository.create({
+        clienteNombre: 'Cliente 1',
+        clienteDireccion: 'Direccion 1',
+        items: [{ productoSku: 'PROD-001', cantidad: 1 }],
+      })
+      const o2 = await repository.create({
+        clienteNombre: 'Cliente 2',
+        clienteDireccion: 'Direccion 2',
+        items: [{ productoSku: 'PROD-002', cantidad: 1 }],
+      })
+      const o3 = await repository.create({
+        clienteNombre: 'Cliente 3',
+        clienteDireccion: 'Direccion 3',
+        items: [{ productoSku: 'PROD-001', cantidad: 1 }],
+      })
+
+      const primeraPagina = await repository.findAll({ pageSize: 2, offset: 0 })
+      expect(primeraPagina.data).toHaveLength(2)
+      expect(primeraPagina.offset).toBe(0)
+      expect(primeraPagina.pageSize).toBe(2)
+      expect(primeraPagina.hasNextPage).toBe(true)
+      expect(primeraPagina.data[0].id).toBe(o1.id)
+      expect(primeraPagina.data[1].id).toBe(o2.id)
+
+      const segundaPagina = await repository.findAll({ pageSize: 2, offset: 2 })
+      expect(segundaPagina.data).toHaveLength(1)
+      expect(segundaPagina.offset).toBe(2)
+      expect(segundaPagina.pageSize).toBe(2)
+      expect(segundaPagina.hasNextPage).toBe(false)
+      expect(segundaPagina.data[0].id).toBe(o3.id)
+    })
+
+    it('retorna data vacía cuando no hay órdenes que coincidan', async () => {
       await repository.create({
         clienteNombre: 'Cliente Pedida',
         clienteDireccion: 'Direccion 1',
@@ -466,12 +504,14 @@ describe('OrdenesRepository (Integration with test DB)', () => {
       })
 
       const ordenes = await repository.findAll({ estado: EstadoOrden.COMPLETADA })
-      expect(ordenes).toEqual([])
+      expect(ordenes.data).toEqual([])
+      expect(ordenes.hasNextPage).toBe(false)
     })
 
-    it('retorna array vacío si la base de datos no tiene órdenes', async () => {
+    it('retorna data vacía si la base de datos no tiene órdenes', async () => {
       const ordenes = await repository.findAll()
-      expect(ordenes).toEqual([])
+      expect(ordenes.data).toEqual([])
+      expect(ordenes.hasNextPage).toBe(false)
     })
   })
 })

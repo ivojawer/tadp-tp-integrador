@@ -2,12 +2,16 @@ import { Inject, Injectable } from '@nestjs/common'
 import { Kysely, Transaction } from 'kysely'
 import { KYSELY_DB } from '../../../common/database/database.provider'
 import { Database } from '../../../common/database/types'
+import { PaginatedResponseDto } from '../../../common/dto/paginated-response.dto'
 import { EstadoFisicoItem } from '../../inventario/entities/item.entity'
 import { EstadoOrden, ItemPedido, Orden } from '../entities/orden.entity'
 
 export interface IOrdenesRepository {
   findById(id: number, trx?: Transaction<Database>): Promise<Orden | null>
-  findAll(filtros?: { estado?: EstadoOrden }, trx?: Transaction<Database>): Promise<Orden[]>
+  findAll(
+    filtros?: { estado?: EstadoOrden; pageSize?: number; offset?: number },
+    trx?: Transaction<Database>,
+  ): Promise<PaginatedResponseDto<Orden>>
   create(
     data: {
       clienteNombre: string
@@ -100,8 +104,13 @@ export class OrdenesRepository implements IOrdenesRepository {
     }
   }
 
-  async findAll(filtros?: { estado?: EstadoOrden }, trx?: Transaction<Database>): Promise<Orden[]> {
+  async findAll(
+    filtros?: { estado?: EstadoOrden; pageSize?: number; offset?: number },
+    trx?: Transaction<Database>,
+  ): Promise<PaginatedResponseDto<Orden>> {
     const executor = trx ?? this.db
+    const pageSize = filtros?.pageSize ?? 10
+    const offset = filtros?.offset ?? 0
 
     let query = executor.selectFrom('ordenes').selectAll().orderBy('id', 'asc')
 
@@ -109,13 +118,23 @@ export class OrdenesRepository implements IOrdenesRepository {
       query = query.where('estado', '=', filtros.estado)
     }
 
+    query = query.offset(offset).limit(pageSize + 1)
+
     const ordenesRows = await query.execute()
 
-    if (ordenesRows.length === 0) {
-      return []
+    const hasNextPage = ordenesRows.length > pageSize
+    const pagedOrdenesRows = hasNextPage ? ordenesRows.slice(0, pageSize) : ordenesRows
+
+    if (pagedOrdenesRows.length === 0) {
+      return {
+        data: [],
+        offset,
+        pageSize,
+        hasNextPage: false,
+      }
     }
 
-    const ordenIds = ordenesRows.map((o) => o.id)
+    const ordenIds = pagedOrdenesRows.map((o) => o.id)
 
     const itemsPedidosRows = await executor
       .selectFrom('items_pedidos')
@@ -129,7 +148,7 @@ export class OrdenesRepository implements IOrdenesRepository {
       .where('orden_id', 'in', ordenIds)
       .execute()
 
-    return ordenesRows.map((orden) => {
+    const data = pagedOrdenesRows.map((orden) => {
       const itemsPedidosDeOrden = itemsPedidosRows
         .filter((ip) => ip.orden_id === orden.id)
         .map((ip) => {
@@ -161,6 +180,13 @@ export class OrdenesRepository implements IOrdenesRepository {
         itemsPedidos: itemsPedidosDeOrden,
       }
     })
+
+    return {
+      data,
+      offset,
+      pageSize,
+      hasNextPage,
+    }
   }
 
   async create(

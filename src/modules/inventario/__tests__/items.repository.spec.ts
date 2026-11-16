@@ -378,7 +378,10 @@ describe('ItemsRepository (Integration with test DB)', () => {
   describe('obtenerEstadoItems', () => {
     it('retorna lista vacía cuando no hay items en el warehouse', async () => {
       const result = await repository.obtenerEstadoItems()
-      expect(result).toEqual([])
+      expect(result.data).toEqual([])
+      expect(result.offset).toBe(0)
+      expect(result.pageSize).toBe(10)
+      expect(result.hasNextPage).toBe(false)
     })
 
     it('retorna lista agrupada con disponibles y reservados por SKU', async () => {
@@ -428,7 +431,7 @@ describe('ItemsRepository (Integration with test DB)', () => {
 
       const result = await repository.obtenerEstadoItems()
 
-      expect(result).toEqual([
+      expect(result.data).toEqual([
         {
           sku: 'PROD-001',
           disponibles: 2,
@@ -445,6 +448,47 @@ describe('ItemsRepository (Integration with test DB)', () => {
           reservados: 2,
         },
       ])
+      expect(result.offset).toBe(0)
+      expect(result.pageSize).toBe(10)
+      expect(result.hasNextPage).toBe(false)
+    })
+
+    it('retorna resultados paginados usando pageSize y offset, con hasNextPage', async () => {
+      await db
+        .insertInto('items')
+        .values([
+          {
+            producto_sku: 'PROD-001',
+            estado_fisico: EstadoFisicoItem.DISPONIBLE,
+            orden_id: null,
+          },
+          {
+            producto_sku: 'PROD-002',
+            estado_fisico: EstadoFisicoItem.DISPONIBLE,
+            orden_id: null,
+          },
+          {
+            producto_sku: 'PROD-003',
+            estado_fisico: EstadoFisicoItem.DISPONIBLE,
+            orden_id: null,
+          },
+        ])
+        .execute()
+
+      const primeraPagina = await repository.obtenerEstadoItems({ pageSize: 2, offset: 0 })
+      expect(primeraPagina.data).toHaveLength(2)
+      expect(primeraPagina.offset).toBe(0)
+      expect(primeraPagina.pageSize).toBe(2)
+      expect(primeraPagina.hasNextPage).toBe(true)
+      expect(primeraPagina.data[0].sku).toBe('PROD-001')
+      expect(primeraPagina.data[1].sku).toBe('PROD-002')
+
+      const segundaPagina = await repository.obtenerEstadoItems({ pageSize: 2, offset: 2 })
+      expect(segundaPagina.data).toHaveLength(1)
+      expect(segundaPagina.offset).toBe(2)
+      expect(segundaPagina.pageSize).toBe(2)
+      expect(segundaPagina.hasNextPage).toBe(false)
+      expect(segundaPagina.data[0].sku).toBe('PROD-003')
     })
   })
 })

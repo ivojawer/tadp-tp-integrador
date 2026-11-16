@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common'
+import { PaginatedResponseDto } from '../../../common/dto/paginated-response.dto'
 import { IItemsRepository, ITEMS_REPOSITORY } from '../../inventario/repositories/items.repository'
 import { VehiculosService } from '../../vehiculos/services/vehiculos.service'
 import { CreateOrdenDto } from '../dto/create-orden.dto'
@@ -34,13 +35,13 @@ export class OrdenesService {
     return orden
   }
 
-  async findAll(filtros?: FindOrdenesQueryDto): Promise<Orden[]> {
+  async findAll(filtros?: FindOrdenesQueryDto): Promise<PaginatedResponseDto<Orden>> {
+    const pageSize = filtros?.pageSize ?? 10
+    const offset = filtros?.offset ?? 0
     this.logger.log(
-      `Listando órdenes${filtros?.estado ? ` con filtro estado=${filtros.estado}` : ''}`,
+      `Listando órdenes${filtros?.estado ? ` con filtro estado=${filtros.estado}` : ''} pageSize=${pageSize} offset=${offset}`,
     )
-    return await (filtros && Object.keys(filtros).length > 0
-      ? this.ordenesRepository.findAll(filtros)
-      : this.ordenesRepository.findAll())
+    return await this.ordenesRepository.findAll(filtros)
   }
 
   async create(createOrdenDto: CreateOrdenDto): Promise<Orden> {

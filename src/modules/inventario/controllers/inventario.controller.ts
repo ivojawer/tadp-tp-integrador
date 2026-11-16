@@ -4,8 +4,11 @@ import {
   HttpException,
   InternalServerErrorException,
   Logger,
+  Query,
 } from '@nestjs/common'
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
+import { PaginatedResponseDto } from '../../../common/dto/paginated-response.dto'
+import { PaginationQueryDto } from '../../../common/dto/pagination-query.dto'
 import { EstadoItemsDto } from '../dto/estado-items.dto'
 import { InventarioService } from '../services/inventario.service'
 
@@ -18,16 +21,20 @@ export class InventarioController {
 
   @Get()
   @ApiOperation({
-    summary: 'Consultar el estado de los items físicos agrupados por SKU',
+    summary:
+      'Consultar el estado de los items físicos agrupados por SKU con paginación (pageSize/offset)',
   })
   @ApiResponse({
     status: 200,
-    description: 'Listado de SKUs con cantidad de items disponibles y reservados',
-    type: [EstadoItemsDto],
+    description: 'Listado paginado de SKUs con cantidad de items disponibles y reservados',
+    type: PaginatedResponseDto,
   })
-  async obtenerEstadoItems(): Promise<EstadoItemsDto[]> {
+  @ApiResponse({ status: 400, description: 'Parámetros de consulta inválidos' })
+  async obtenerEstadoItems(
+    @Query() query?: PaginationQueryDto,
+  ): Promise<PaginatedResponseDto<EstadoItemsDto>> {
     try {
-      return await this.inventarioService.obtenerEstadoItems()
+      return await this.inventarioService.obtenerEstadoItems(query)
     } catch (error) {
       if (error instanceof HttpException) {
         throw error

@@ -13,6 +13,7 @@ import {
   Query,
 } from '@nestjs/common'
 import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger'
+import { PaginatedResponseDto } from '../../../common/dto/paginated-response.dto'
 import { CreateOrdenDto } from '../dto/create-orden.dto'
 import { FindOrdenesQueryDto } from '../dto/find-ordenes-query.dto'
 import { UpdateEstadoOrdenDto } from '../dto/update-estado-orden.dto'
@@ -27,17 +28,18 @@ export class OrdenesController {
   constructor(private readonly ordenesService: OrdenesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Listar órdenes con filtro opcional por estado' })
+  @ApiOperation({
+    summary: 'Listar órdenes con filtro opcional por estado y paginación (pageSize/offset)',
+  })
   @ApiResponse({
     status: 200,
-    description: 'Listado de órdenes obtenido exitosamente con sus líneas de pedido',
-    type: [Orden],
+    description: 'Listado paginado de órdenes obtenido exitosamente con sus líneas de pedido',
+    type: PaginatedResponseDto,
   })
   @ApiResponse({ status: 400, description: 'Parámetros de consulta inválidos' })
-  async findAll(@Query() query?: FindOrdenesQueryDto): Promise<Orden[]> {
+  async findAll(@Query() query?: FindOrdenesQueryDto): Promise<PaginatedResponseDto<Orden>> {
     try {
-      const filtros = query && Object.keys(query).length > 0 ? query : undefined
-      return await (filtros ? this.ordenesService.findAll(filtros) : this.ordenesService.findAll())
+      return await this.ordenesService.findAll(query)
     } catch (error) {
       if (error instanceof HttpException) {
         throw error
